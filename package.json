@@ -1,0 +1,12 @@
+{
+  "name": "ctaaaa-mqtt-listener",
+  "version": "1.0.0",
+  "description": "HiveMQ MQTT listener for CTA supervision",
+  "main": "mqtt_listener.js",
+  "scripts": {
+    "start": "node mqtt_listener.js"
+  },
+  "dependencies": {
+    "mqtt": "^5.1.1"
+  }
+}

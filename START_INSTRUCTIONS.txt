@@ -1,0 +1,49 @@
+=======================================================
+   GUIDE DE DÉMARRAGE RAPIDE - SUPERVISION CTA IOT
+=======================================================
+
+Ce fichier explique comment lancer l'intégralité du projet 
+sur n'importe quel nouvel ordinateur.
+
+📌 ÉTAPE 1 : DÉMARRER LE SERVEUR LOCAL (XAMPP)
+-------------------------------------------------------
+1. Ouvrez XAMPP Control Panel.
+2. Cliquez sur "Start" à côté de Apache (pour le site web).
+3. Cliquez sur "Start" à côté de MySQL (pour la base de données).
+   *(Assurez-vous que le dossier "cta" est bien placé dans C:\xampp\htdocs\cta)*
+
+📌 ÉTAPE 2 : DÉMARRER LE BACKEND NODE.JS
+-------------------------------------------------------
+1. Ouvrez un terminal (Invite de commandes ou PowerShell).
+2. Naviguez vers le dossier backend :
+   > cd C:\xampp\htdocs\cta\backend
+3. Installez les dépendances (la première fois uniquement) :
+   > npm install
+4. Lancez le serveur Node.js :
+   > node server.js
+   
+   *(Le terminal affichera "CTA Node.js Backend is running on port 3001" et créera automatiquement la base de données si elle n'existe pas)*
+
+📌 ÉTAPE 3 : DÉMARRER LE SIMULATEUR ESP32 (AVANT INSTALLATION MATÉRIELLE)
+-------------------------------------------------------
+1. Laissez le terminal Node.js ouvert !
+2. Ouvrez un DEUXIÈME terminal séparé.
+3. Naviguez vers le même dossier backend :
+   > cd C:\xampp\htdocs\cta\backend
+4. Lancez le simulateur MQTT de données matérielles :
+   > node mock_esp32.js
+
+📌 ÉTAPE 4 : ACCÉDER AU TABLEAU DE BORD
+-------------------------------------------------------
+1. Ouvrez Google Chrome ou Edge.
+2. Allez sur : http://localhost/cta/index.php
+3. Connectez-vous :
+   - Utilisateur : admin
+   - Mot de passe : admin123
+   - Rôle : Administrateur
+4. C'est prêt !
+
+-------------------------------------------------------
+🔹 QUAND LA VRAIE CARTE ESP32 ARRIVE :
+- Vous pouvez arrêter l'Étape 3 (`node mock_esp32.js`).
+- Flashez simplement le code `esp32/esp32_example.cpp` sur votre vraie carte et branchez-la. Elle remplacera le simulateur instantanément !
