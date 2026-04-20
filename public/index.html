@@ -276,27 +276,27 @@
     <main class="main">
         <div class="page-layout">
             <aside class="cta-sidebar" id="cta-sidebar">
-                <a class="cta-item" href="machine.php?cta=galerie-gauche" data-cta="galerie-gauche">
+                <a class="cta-item" href="machine.html?cta=galerie-gauche" data-cta="galerie-gauche">
                     <div class="title">CTA Galerie Gauche</div>
                     <div class="meta"><span>Mode</span><span data-idx="galerie-gauche-mode">Chauffage</span></div>
                     <div class="meta"><span>État</span><span data-idx="galerie-gauche-etat">Actif</span></div>
                     <div class="meta"><span>T°</span><span data-idx="galerie-gauche-temp">21.5°C</span></div>
                 </a>
-                <a class="cta-item" href="machine.php?cta=galerie-droite" data-cta="galerie-droite">
+                <a class="cta-item" href="machine.html?cta=galerie-droite" data-cta="galerie-droite">
                     <div class="title">CTA Galerie Droite</div>
                     <div class="meta"><span>Mode</span><span data-idx="galerie-droite-mode">Climatisation</span></div>
                     <div class="meta"><span>État</span><span data-idx="galerie-droite-etat">Inactif</span></div>
                     <div class="meta"><span>T°</span><span data-idx="galerie-droite-temp">22.0°C</span></div>
                 </a>
-                <a class="cta-item" href="machine.php?cta=salle-polyvalente" data-cta="salle-polyvalente">
+                <a class="cta-item" href="machine.html?cta=salle-polyvalente" data-cta="salle-polyvalente">
                     <div class="title">CTA Salle Polyvalente</div>
                     <div class="meta"><span>Mode</span><span data-idx="salle-polyvalente-mode">Chauffage</span></div>
                     <div class="meta"><span>État</span><span data-idx="salle-polyvalente-etat">Actif</span></div>
                     <div class="meta"><span>T°</span><span data-idx="salle-polyvalente-temp">20.8°C</span></div>
                 </a>
-                <a class="cta-item" href="machine.php?cta=hall-reception" data-cta="hall-reception">
+                <a class="cta-item" href="machine.html?cta=hall-reception" data-cta="hall-reception">
                     <div class="title">CTA Hall Réception</div>
-                    <div class="meta"><span>Mode</span><span data-idx="hall-reception-mode">Ventilation</span></div>
+                    <div class="meta"><span>Mode</span><span data-idx="hall-reception-mode">Climatisation</span></div>
                     <div class="meta"><span>État</span><span data-idx="hall-reception-etat">Actif</span></div>
                     <div class="meta"><span>T°</span><span data-idx="hall-reception-temp">21.2°C</span></div>
                 </a>
@@ -313,7 +313,7 @@
 // ── Garde d'authentification ──────────────────────────────────────
 (function authGuard() {
     if (localStorage.getItem('rg_logged') !== '1') {
-        window.location.replace('login.php');
+        window.location.replace('login.html');
         return;
     }
     const username = localStorage.getItem('rg_user') || '—';
@@ -343,7 +343,7 @@ function doLogout() {
     localStorage.removeItem('rg_logged');
     localStorage.removeItem('rg_user');
     localStorage.removeItem('rg_role');
-    window.location.replace('login.php');
+    window.location.replace('login.html');
 }
 // ─────────────────────────────────────────────────────────────────
 </script>
@@ -360,27 +360,53 @@ function doLogout() {
         if (v) el.textContent = v;
     });
 
-    // Mise à jour dynamique de TOUS les statuts depuis la base de données
-    fetch('http://localhost:3001/api/equipments')
-        .then(res => res.json())
-        .then(equipments => {
+    // Fetch live data from database (status + telemetry)
+    async function refreshDashboard() {
+        try {
+            const response = await fetch('/api/telemetry/latest');
+            const equipments = await response.json();
+
             const slugMap = {
                 'CTA Galerie Gauche': 'galerie-gauche',
                 'CTA Galerie Droite': 'galerie-droite',
                 'CTA Salle Polyvalente': 'salle-polyvalente',
                 'CTA Hall Réception': 'hall-reception'
             };
+
             equipments.forEach(eq => {
                 const slug = slugMap[eq.name];
-                if (slug) {
-                    const etatSpan = document.querySelector(`[data-idx="${slug}-etat"]`);
-                    if (etatSpan) {
-                        etatSpan.textContent = eq.status === 'actif' ? 'Actif' : 'Inactif';
+                if (!slug) return;
+
+                // Update status
+                const etatSpan = document.querySelector(`[data-idx="${slug}-etat"]`);
+                if (etatSpan) {
+                    const etatText = eq.status === 'actif' ? 'Actif' : 'Inactif';
+                    etatSpan.textContent = etatText;
+                    etatSpan.style.color = eq.status === 'actif' ? 'var(--success)' : 'var(--danger)';
+                    etatSpan.style.fontWeight = '600';
+                }
+
+                // Update live temperature
+                if (eq.temperature !== null && eq.temperature !== undefined) {
+                    const tempSpan = document.querySelector(`[data-idx="${slug}-temp"]`);
+                    if (tempSpan) {
+                        const newVal = parseFloat(eq.temperature).toFixed(1) + '°C';
+                        if (tempSpan.textContent !== newVal) {
+                            tempSpan.textContent = newVal;
+                            tempSpan.style.transition = 'color 0.3s';
+                            tempSpan.style.color = 'var(--accent)';
+                        }
                     }
                 }
             });
-        })
-        .catch(e => console.error("Could not fetch equipments table on dashboard load", e));
+        } catch(e) {
+            console.error("Could not fetch live data on dashboard", e);
+        }
+    }
+
+    // Initial fetch + auto-refresh every 4 seconds
+    refreshDashboard();
+    setInterval(refreshDashboard, 4000);
 })();
 </script>
 <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>

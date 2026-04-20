@@ -1,7 +1,7 @@
 // Dashboard schéma CTA dynamique – Mode démo sans serveur
 // Données simulées + animations (ventilateur, flamme, flèches)
 
-const equipmentState = { ventilateur: false, chauffage: false };
+const equipmentState = { chauffage: false };
 const energyHistory = [];
 const HISTORY_MAX = 30;
 let energieJourWh = 0;
@@ -45,7 +45,6 @@ function initChart() {
 
 function getPuissanceW() {
     let p = 0;
-    if (equipmentState.ventilateur) p += 150;
     if (equipmentState.chauffage) p += 2000;
     return p;
 }
@@ -104,28 +103,10 @@ function pushEnergy(powerW) {
 }
 
 function updateDynamicElements() {
-    const running = equipmentState.ventilateur;
     const heating = equipmentState.chauffage;
-
-    const fanBox = document.getElementById("fan-box");
-    const fanBlades = document.getElementById("fan-blades");
-    if (fanBox) fanBox.classList.toggle("running", running);
-    if (fanBlades) fanBlades.classList.toggle("running", running);
 
     const heaterBox = document.getElementById("heater-box");
     if (heaterBox) heaterBox.classList.toggle("active", heating);
-
-    ["arrow-neuf", "arrow-reprise", "arrow-soufflage"].forEach(function (id) {
-        const el = document.getElementById(id);
-        if (el) el.classList.toggle("flowing", running);
-    });
-
-    const modeEl = document.getElementById("mode");
-    const etatEl = document.getElementById("etat");
-    if (modeEl) modeEl.textContent = running ? "Marche" : "Arrêt";
-    if (etatEl) etatEl.textContent = running ? "Marche" : "Arrêt";
-    if (modeEl) modeEl.style.color = running ? "var(--success)" : "var(--text-muted)";
-    if (etatEl) etatEl.style.color = running ? "var(--success)" : "var(--text-muted)";
 }
 
 function updateAffichage() {
@@ -197,7 +178,7 @@ function simulateTemperatures() {
 function updateButton(btnId, on) {
     const btn = document.getElementById(btnId);
     if (!btn) return;
-    const label = btnId === "btn-ventilateur" ? "Ventilateur" : "Chauffage";
+    const label = "Chauffage";
     btn.textContent = label + (on ? " ON" : " OFF");
     btn.classList.toggle("on", on);
 }
@@ -210,7 +191,7 @@ document.querySelectorAll(".btn-cmd").forEach(function (btn) {
         
         if (client && client.connected) {
             const cmd = {};
-            cmd[key === "ventilateur" ? "fan" : "heating"] = equipmentState[key];
+            cmd["heating"] = equipmentState[key];
             client.publish('cta/commands', JSON.stringify(cmd));
         }
     });

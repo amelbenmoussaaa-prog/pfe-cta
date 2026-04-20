@@ -1,5 +1,6 @@
 require('dotenv').config();
 const express = require('express');
+const path = require('path');
 const cors = require('cors');
 const mysql = require('mysql2/promise');
 const mqtt = require('mqtt');
@@ -10,6 +11,9 @@ const PORT = process.env.PORT || 3001;
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// Serve frontend static files from ../public
+app.use(express.static(path.join(__dirname, '..', 'public')));
 
 // MySQL connection setup (creates DB and tables automatically)
 let dbPool;
@@ -74,7 +78,20 @@ async function initializeDatabase() {
              await dbPool.query(`INSERT INTO equipments (name, location) VALUES ('CTA Hall Réception', 'Hall Réception')`);
         }
 
-        // 3. Telemetry Table (Expanded with equipment_id)
+        // 3. CTA Table (ported from api/cta.php)
+        await dbPool.query(`
+            CREATE TABLE IF NOT EXISTS cta (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                nom VARCHAR(100),
+                zone VARCHAR(100),
+                mode VARCHAR(50),
+                etat VARCHAR(50),
+                temperature FLOAT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
+        // 4. Telemetry Table (Expanded with equipment_id)
         await dbPool.query(`
             CREATE TABLE IF NOT EXISTS telemetry (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -96,7 +113,7 @@ async function initializeDatabase() {
             }
         } catch(e) {}
 
-        // 4. Commands Log Table
+        // 5. Commands Log Table
         await dbPool.query(`
             CREATE TABLE IF NOT EXISTS commands_log (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -110,7 +127,7 @@ async function initializeDatabase() {
             )
         `);
 
-        console.log('Database schema fully initialized perfectly (Users, Equipments, Telemetry, Logs).');
+        console.log('Database schema fully initialized (Users, Equipments, CTA, Telemetry, Logs).');
     } catch (error) {
         console.error('Error initializing database:', error);
     }
@@ -118,7 +135,7 @@ async function initializeDatabase() {
 
 // MQTT Client Setup
 const MQTT_BROKER = process.env.MQTT_BROKER || 'mqtt://broker.hivemq.com:1883';
-const MQTT_TOPIC_SENSORS = 'cta/sensors';
+const MQTT_TOPIC_TELEMETRY = 'cta/telemetry';
 const MQTT_TOPIC_COMMANDS = 'cta/commands';
 
 const mqttClient = mqtt.connect(MQTT_BROKER, {
@@ -129,15 +146,15 @@ const mqttClient = mqtt.connect(MQTT_BROKER, {
 
 mqttClient.on('connect', () => {
     console.log(`Connected to MQTT broker: ${MQTT_BROKER}`);
-    mqttClient.subscribe(MQTT_TOPIC_SENSORS, (err) => {
+    mqttClient.subscribe(MQTT_TOPIC_TELEMETRY, (err) => {
         if (!err) {
-            console.log(`Subscribed to topic: ${MQTT_TOPIC_SENSORS}`);
+            console.log(`Subscribed to topic: ${MQTT_TOPIC_TELEMETRY}`);
         }
     });
 });
 
 mqttClient.on('message', async (topic, payload) => {
-    if (topic === MQTT_TOPIC_SENSORS) {
+    if (topic === MQTT_TOPIC_TELEMETRY) {
         try {
             const data = JSON.parse(payload.toString());
             console.log('Received telemetry:', data);
@@ -155,7 +172,20 @@ mqttClient.on('message', async (topic, payload) => {
     }
 });
 
+// ═══════════════════════════════════════════════════════════
 // REST API Routes
+// ═══════════════════════════════════════════════════════════
+
+// Health check (replaces connect_test.php)
+app.get('/api/health', async (req, res) => {
+    try {
+        if (!dbPool) return res.status(500).json({ status: 'error', message: 'Database not initialized' });
+        await dbPool.query('SELECT 1');
+        res.json({ status: 'ok', message: 'Connected to database', database: process.env.DB_NAME || 'cta' });
+    } catch (error) {
+        res.status(500).json({ status: 'error', message: error.message });
+    }
+});
 
 // Login verification
 app.post('/api/login', async (req, res) => {
@@ -196,6 +226,163 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
+// ─── CTA CRUD Routes (ported from api/cta.php) ───────────
+
+// GET all CTAs or single CTA by id
+app.get('/api/cta', async (req, res) => {
+    try {
+        if (!dbPool) return res.status(500).json({ error: 'Database not initialized' });
+        const [rows] = await dbPool.query('SELECT * FROM cta ORDER BY id ASC');
+        res.json(rows);
+    } catch (error) {
+        console.error('CTA query error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/cta/:id', async (req, res) => {
+    try {
+        if (!dbPool) return res.status(500).json({ error: 'Database not initialized' });
+        const [rows] = await dbPool.query('SELECT * FROM cta WHERE id = ?', [req.params.id]);
+        if (rows.length === 0) {
+            return res.status(404).json({ error: 'CTA not found' });
+        }
+        res.json(rows[0]);
+    } catch (error) {
+        console.error('CTA query error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// POST create a new CTA
+app.post('/api/cta', async (req, res) => {
+    try {
+        if (!dbPool) return res.status(500).json({ error: 'Database not initialized' });
+        const allowedFields = ['nom', 'zone', 'mode', 'etat', 'temperature'];
+        const fields = {};
+        for (const field of allowedFields) {
+            if (req.body[field] !== undefined && req.body[field] !== null) {
+                fields[field] = req.body[field];
+            }
+        }
+        if (Object.keys(fields).length === 0) {
+            return res.status(400).json({ error: 'No fields provided' });
+        }
+        const columns = Object.keys(fields);
+        const placeholders = columns.map(() => '?').join(', ');
+        const values = columns.map(c => fields[c]);
+        const [result] = await dbPool.query(
+            `INSERT INTO cta (${columns.join(', ')}) VALUES (${placeholders})`,
+            values
+        );
+        res.status(201).json({ success: true, id: result.insertId });
+    } catch (error) {
+        console.error('CTA create error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// PUT update a CTA
+app.put('/api/cta/:id', async (req, res) => {
+    try {
+        if (!dbPool) return res.status(500).json({ error: 'Database not initialized' });
+        const allowedFields = ['nom', 'zone', 'mode', 'etat', 'temperature'];
+        const fields = {};
+        for (const field of allowedFields) {
+            if (req.body[field] !== undefined && req.body[field] !== null) {
+                fields[field] = req.body[field];
+            }
+        }
+        if (Object.keys(fields).length === 0) {
+            return res.status(400).json({ error: 'No fields provided' });
+        }
+        const setParts = Object.keys(fields).map(k => `${k} = ?`).join(', ');
+        const values = [...Object.values(fields), req.params.id];
+        await dbPool.query(`UPDATE cta SET ${setParts} WHERE id = ?`, values);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('CTA update error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// DELETE a CTA
+app.delete('/api/cta/:id', async (req, res) => {
+    try {
+        if (!dbPool) return res.status(500).json({ error: 'Database not initialized' });
+        await dbPool.query('DELETE FROM cta WHERE id = ?', [req.params.id]);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('CTA delete error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ─── Sensor Data Routes (ported from api/sensor_data.php) ──
+
+// GET latest sensor data per equipment
+app.get('/api/sensor-data', async (req, res) => {
+    try {
+        if (!dbPool) return res.status(500).json({ error: 'Database not initialized' });
+        const [rows] = await dbPool.query(`
+            SELECT t.equipment_id as capteur_id, t.temperature as valeur, t.created_at as date_mesure
+            FROM telemetry t
+            WHERE t.id IN (
+                SELECT MAX(id) FROM telemetry GROUP BY equipment_id
+            )
+            ORDER BY t.equipment_id ASC
+        `);
+        res.json(rows);
+    } catch (error) {
+        console.error('Sensor data query error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// POST insert sensor data
+app.post('/api/sensor-data', async (req, res) => {
+    try {
+        if (!dbPool) return res.status(500).json({ error: 'Database not initialized' });
+        const capteurId = req.body.capteur_id != null ? parseInt(req.body.capteur_id) : null;
+        const valeur = req.body.valeur != null ? parseFloat(req.body.valeur) : null;
+        const dateMesure = req.body.date_mesure || new Date().toISOString().slice(0, 19).replace('T', ' ');
+
+        if (capteurId === null || valeur === null) {
+            return res.status(400).json({ error: 'capteur_id and valeur are required' });
+        }
+
+        const [result] = await dbPool.query(
+            'INSERT INTO telemetry (equipment_id, temperature, created_at) VALUES (?, ?, ?)',
+            [capteurId, valeur, dateMesure]
+        );
+        res.status(201).json({ success: true, insert_id: result.insertId });
+    } catch (error) {
+        console.error('Sensor data insert error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ─── Telemetry & History Routes ──────────────────────────
+
+// Get telemetry data
+app.get('/api/telemetry', async (req, res) => {
+    try {
+        if (!dbPool) return res.status(500).json({ error: 'Database not initialized' });
+        
+        const [rows] = await dbPool.query(`
+            SELECT t.*, e.name as equipment_name 
+            FROM telemetry t 
+            LEFT JOIN equipments e ON t.equipment_id = e.id 
+            ORDER BY t.created_at DESC LIMIT 100
+        `);
+        
+        res.json(rows);
+    } catch (error) {
+        console.error('Telemetry query error:', error);
+        res.status(500).json({ error: 'Erreur interne du serveur' });
+    }
+});
+
 // Get historical data
 app.get('/api/history', async (req, res) => {
     try {
@@ -207,6 +394,8 @@ app.get('/api/history', async (req, res) => {
         res.status(500).json({ error: 'Internal server error' });
     }
 });
+
+// ─── Commands & Equipment Routes ─────────────────────────
 
 // Publish command route
 app.post('/api/commands', async (req, res) => {
@@ -269,8 +458,38 @@ app.put('/api/equipments/status', async (req, res) => {
     }
 });
 
+// Get latest telemetry per equipment (for dashboard & machine page sync)
+app.get('/api/telemetry/latest', async (req, res) => {
+    try {
+        if (!dbPool) return res.status(500).json({ error: 'DB not initialized' });
+        const [rows] = await dbPool.query(`
+            SELECT e.id as equipment_id, e.name, e.location, e.status,
+                   t.temperature, t.humidity, t.current, t.created_at
+            FROM equipments e
+            LEFT JOIN telemetry t ON t.id = (
+                SELECT MAX(t2.id) FROM telemetry t2 WHERE t2.equipment_id = e.id
+            )
+            ORDER BY e.id ASC
+        `);
+        res.json(rows);
+    } catch(err) {
+        console.error('Latest telemetry error:', err);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// ─── SPA Fallback: serve index.html for unmatched routes ──
+// Express 5 requires named wildcard parameters
+app.get('/{*path}', (req, res) => {
+    // Only serve index.html for non-API, non-file requests
+    if (!req.path.startsWith('/api/')) {
+        res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
+    }
+});
+
 // Start Express Server
 app.listen(PORT, async () => {
     console.log(`CTA Node.js Backend is running on port ${PORT}`);
+    console.log(`Frontend served at: http://localhost:${PORT}`);
     await initializeDatabase();
 });

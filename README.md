@@ -1,48 +1,82 @@
-# CTA Supervision - API & MQTT Integration
+# CTA Supervision – Node.js Full-Stack
 
-This project now includes:
+This project is a **CTA (Centrale de Traitement d'Air)** IoT supervision dashboard for **Royal Garden Palace**.
 
-- `api/cta.php`: CRUD endpoint for the `cta` table
-- `api/sensor_data.php`: backend endpoint for sensor measurements in `donnees_capteurs`
-- `mqtt_listener.js`: HiveMQ MQTT listener service that forwards IoT telemetry to the PHP backend
-- `package.json`: npm metadata for the MQTT listener
+## Architecture
 
-## How to run
+- **Frontend**: Static HTML/CSS/JS served by Express from `public/`
+- **Backend**: Node.js + Express (`backend/server.js`) — REST API + MQTT + MySQL
+- **IoT**: ESP32 sensors communicating via HiveMQ MQTT broker
+- **Database**: MySQL (auto-created on first run)
 
-1. Start Apache in XAMPP so the PHP app is reachable in the browser.
-2. Open `http://localhost/ctaaaa/machine.php` once the web server is running.
-3. From the project folder, run the MQTT listener:
+## Project Structure
 
+```
+pfe-cta/
+├── backend/
+│   ├── server.js          # Express server (API + MQTT + static serving)
+│   ├── mock_esp32.js       # ESP32 simulator for testing
+│   ├── .env                # Environment configuration
+│   └── package.json        # Node.js dependencies
+├── public/
+│   ├── index.html          # Dashboard page
+│   ├── login.html          # Login page
+│   ├── machine.html        # Machine detail view
+│   ├── script.js           # Frontend JavaScript
+│   ├── style.css           # Frontend styles
+│   ├── cta.png             # CTA schematic image
+│   └── rg.jpg              # Royal Garden logo
+├── esp32/
+│   └── esp32_example.cpp   # Real ESP32 firmware code
+├── README.md
+└── START_INSTRUCTIONS.txt
+```
+
+## How to Run
+
+### 1. Start MySQL (XAMPP)
+Open XAMPP and start **MySQL only** (Apache is no longer needed).
+
+### 2. Start the Node.js Server
 ```powershell
-cd C:\xampp\htdocs\ctaaaa
-npm start
+cd backend
+npm install        # First time only
+node server.js
 ```
 
-## HiveMQ setup
+### 3. Open the Dashboard
+Open your browser to: **http://localhost:3001**
 
-The listener subscribes to the topic pattern:
+### 4. Login Credentials
+- **Admin**: `admin` / `admin123` (select Administrateur)
+- **Visitor**: `visiteur` / `visit123` (select Visiteur)
 
-- `ctaaaa/+/telemetry`
-
-Payload should be JSON with `capteur_id` and `valeur`, for example:
-
-```json
-{
-  "capteur_id": 3,
-  "valeur": 22.5
-}
-```
-
-You can override the broker or API URL by setting environment variables:
-
-- `MQTT_BROKER`
-- `MQTT_TOPICS`
-- `API_URL`
-
-Example:
-
+### 5. (Optional) Start ESP32 Simulator
 ```powershell
-$env:MQTT_BROKER = 'mqtt://broker.hivemq.com:1883'
-$env:API_URL = 'http://localhost/ctaaaa/api/sensor_data.php'
-npm start
+cd backend
+node mock_esp32.js
 ```
+
+## API Endpoints
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| GET | `/api/health` | Database connection test |
+| POST | `/api/login` | User authentication |
+| GET | `/api/cta` | List all CTA records |
+| GET | `/api/cta/:id` | Get single CTA |
+| POST | `/api/cta` | Create CTA record |
+| PUT | `/api/cta/:id` | Update CTA record |
+| DELETE | `/api/cta/:id` | Delete CTA record |
+| GET | `/api/sensor-data` | Latest sensor readings |
+| POST | `/api/sensor-data` | Insert sensor reading |
+| GET | `/api/telemetry` | Telemetry data (last 100) |
+| GET | `/api/history` | Historical data (last 50) |
+| POST | `/api/commands` | Send MQTT command |
+| GET | `/api/equipments` | Equipment status list |
+| PUT | `/api/equipments/status` | Update equipment status |
+
+## MQTT Topics
+
+- `cta/telemetry` — Sensor data from ESP32
+- `cta/commands` — Commands to ESP32

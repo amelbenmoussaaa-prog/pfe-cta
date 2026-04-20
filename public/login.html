@@ -481,7 +481,7 @@
         errorEl.classList.remove('visible');
 
         try {
-            const response = await fetch('http://localhost:3001/api/login', {
+            const response = await fetch('/api/login', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ username, password })
@@ -512,7 +512,7 @@
 
             // Rediriger vers la page principale
             setTimeout(() => {
-                window.location.href = 'index.php';
+                window.location.href = 'index.html';
             }, 500);
 
         } catch (error) {
@@ -538,7 +538,7 @@
 
     // Si déjà connecté, rediriger directement
     if (localStorage.getItem('rg_logged') === '1') {
-        window.location.href = 'index.php';
+        window.location.href = 'index.html';
     }
 </script>
 </body>

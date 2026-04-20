@@ -59,7 +59,7 @@ client.on('connect', () => {
         });
 
         console.log(`📤 Publishing Sensor Data -> ${payload}`);
-        client.publish('cta/sensors', payload);
+        client.publish('cta/telemetry', payload);
     }, 3000);
 });
 

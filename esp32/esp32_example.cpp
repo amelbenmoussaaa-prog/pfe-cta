@@ -115,6 +115,6 @@ void loop() {
 
     Serial.print("Publishing message: ");
     Serial.println(msg);
-    client.publish("cta/sensors", msg);
+    client.publish("cta/telemetry", msg);
   }
 }
