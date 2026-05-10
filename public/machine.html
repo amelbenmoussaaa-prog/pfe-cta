@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Vue Machine CTA</title>
     <link rel="stylesheet" href="style.css">
+    <script src="chart.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
     <style>
         :root {
             --bg: #ffffff;
@@ -312,7 +314,8 @@
         #temp-salle { top: 55%; right: 12%; }
         #extracteur { top: 48%; left: 8%; }
         #temp-reprise { bottom: 18%; left: 8%; }
-        #vanne { bottom: 18%; right: 12%; }
+        #vanne-chaud { bottom: 18%; right: 12%; }
+        #vanne-froid  { bottom: 18%; right: 12%; }
         #humidite { bottom: 5%; left: 50%; transform: translateX(-50%); }
 
         /* edit-panel styles removed */
@@ -435,11 +438,148 @@
             background-color: transparent;
         }
 
-        /* styles rg-watermark retirés */
+        /* Modal Styles */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 10000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            backdrop-filter: blur(4px);
+        }
+
+        .modal-content {
+            background-color: white;
+            margin: 5% auto;
+            padding: 2rem;
+            border-radius: 16px;
+            width: 90%;
+            max-width: 1200px;
+            max-height: 85vh;
+            overflow-y: auto;
+            box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);
+            animation: modalSlide 0.3s ease-out;
+        }
+
+        @keyframes modalSlide {
+            from { transform: translateY(-30px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        .close-modal {
+            float: right;
+            font-size: 1.8rem;
+            font-weight: bold;
+            cursor: pointer;
+            color: #64748b;
+        }
+
+        .close-modal:hover { color: #ef4444; }
+
+        .history-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+            font-size: 0.82rem;
+        }
+
+        .history-table th {
+            background: #f1f5f9;
+            padding: 12px;
+            text-align: left;
+            font-weight: 700;
+            color: #1e293b;
+            border-bottom: 2px solid #e2e8f0;
+            position: sticky;
+            top: 0;
+        }
+
+        .history-table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #f1f5f9;
+            color: #334155;
+        }
+
+        .history-table tr:hover { background: #f8fafc; }
+
+        /* KPI Cards */
+        .kpi-card {
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 1rem;
+            text-align: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .kpi-card:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0,0,0,0.09); }
+        .kpi-card.alert { border-color: var(--danger); background: #fff5f5; }
+        .kpi-card.warn  { border-color: var(--warning); background: #fffbeb; }
+        .kpi-icon { font-size: 1.4rem; margin-bottom: 0.3rem; }
+        .kpi-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); margin-bottom: 0.3rem; }
+        .kpi-value { font-size: 1.5rem; font-weight: 700; color: var(--accent); line-height: 1.1; }
+        .kpi-unit  { font-size: 0.7rem; color: var(--text-muted); margin-top: 0.1rem; }
+        .kpi-card.alert .kpi-value { color: var(--danger); }
+        .kpi-card.warn  .kpi-value { color: var(--warning); }
+
+        @keyframes kpiPulse {
+            0%   { transform: scale(1.08); }
+            100% { transform: scale(1); }
+        }
+        .kpi-updated { animation: kpiPulse 0.35s ease; }
     </style>
     <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
 </head>
 <body>
+    <!-- Modal for Temperature History -->
+    <div id="historyModal" class="modal">
+        <div class="modal-content">
+            <span class="close-modal" onclick="closeHistoryModal()">&times;</span>
+            <h2 style="margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.75rem;">
+                <span style="font-size: 1.5rem;">📊</span> 
+                <span>Historique Complet des Températures (SQL)</span>
+            </h2>
+            <div id="history-loading" style="text-align: center; padding: 2rem; color: #64748b;">
+                <p>Chargement des données depuis la base de données...</p>
+            </div>
+            <div style="overflow-x: auto;">
+                <table class="history-table" id="history-table" style="display: none;">
+                    <thead>
+                        <tr>
+                            <th>Horodatage</th>
+                            <th style="background: #ecfdf5;">Salle</th>
+                            <th style="background: #fefce8;">Reprise</th>
+                            <th style="background: #eff6ff;">Soufflage</th>
+                            <th style="background: #fff7ed;">Aller</th>
+                            <th style="background: #fff1f2;">Retour</th>
+                        </tr>
+                    </thead>
+                    <tbody id="history-table-body"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    <div id="alarm-container" style="position: fixed; top: 20px; right: 20px; z-index: 9999; width: 320px; pointer-events: none;"></div>
+    <style>
+        .alarm-toast {
+            background: #fff;
+            border-left: 5px solid var(--danger);
+            padding: 1rem;
+            margin-bottom: 10px;
+            border-radius: 8px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            animation: slideIn 0.3s ease forwards;
+            pointer-events: all;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+    </style>
     <header class="header">
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <div style="display:flex; align-items:center; gap:0.75rem;">
@@ -449,9 +589,25 @@
                     <p class="subtitle">Supervision détaillée du système CTA</p>
                 </div>
             </div>
-            <div style="display: flex; gap: 0.75rem;">
-                <button id="edit-layout-btn" onclick="toggleEditLayout()" style="padding: 0.5rem 1rem; background: rgba(59, 130, 246, 0.2); color: var(--accent); text-decoration: none; border-radius: var(--radius); font-weight: 500; border: 1px solid var(--accent); transition: all 0.3s; cursor: pointer;">📐 Configurer Layout</button>
-                <a href="index.html" style="padding: 0.5rem 1rem; background: rgba(59, 130, 246, 0.2); color: var(--accent); text-decoration: none; border-radius: var(--radius); font-weight: 500; border: 1px solid var(--accent); transition: all 0.3s;" onmouseover="this.style.background='rgba(59, 130, 246, 0.3)'" onmouseout="this.style.background='rgba(59, 130, 246, 0.2)'">← Retour</a>
+            <div style="display: flex; gap: 1rem; align-items: center;">
+                <!-- Notification Bell -->
+                <div class="notif-wrapper" id="notif-trigger" style="position: relative; cursor: pointer; padding: 0.5rem;">
+                    <span style="font-size: 1.4rem;">🔔</span>
+                    <span id="notif-count" style="position: absolute; top: 4px; right: 4px; background: #ff3b30; color: white; font-size: 0.7rem; min-width: 16px; height: 16px; border-radius: 10px; display: none; align-items: center; justify-content: center; border: 2px solid white; transform: translate(25%, -25%);">0</span>
+                    <div id="notif-dropdown" style="position: absolute; top: 100%; right: 0; width: 320px; background: white; border: 1px solid #e5e7eb; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.12); margin-top: 10px; display: none; z-index: 10000; overflow: hidden; color: var(--text);">
+                        <div style="padding: 0.75rem 1rem; border-bottom: 1px solid #f3f4f6; font-weight: 600; font-size: 0.9rem; display: flex; justify-content: space-between; align-items: center;">
+                            <span>Historique des Alertes</span>
+                            <a href="#" style="font-size: 0.7rem; color: var(--accent); text-decoration: none;" id="mark-all-read">Tout effacer</a>
+                        </div>
+                        <div id="notif-list" style="max-height: 400px; overflow-y: auto;">
+                            <div style="padding: 2rem; text-align: center; color: #999; font-size: 0.8rem;">Aucune alerte enregistrée</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="user-badge" style="display: flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0.75rem; border-radius: 999px; font-size: 0.75rem; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.25); color: white; font-weight: 500;">
+                <button id="edit-layout-btn" onclick="toggleEditLayout()" style="padding: 0.5rem 1rem; background: rgba(59, 130, 246, 0.2); color: var(--accent); text-decoration: none; border-radius: var(--radius); font-weight: 500; border: 1px solid var(--accent); transition: all 0.3s; cursor: pointer; font-size: 0.8rem;">⚙️ Contrôler L'appareil</button>
+                <a href="index.html" style="padding: 0.5rem 1rem; background: rgba(59, 130, 246, 0.2); color: var(--accent); text-decoration: none; border-radius: var(--radius); font-weight: 500; border: 1px solid var(--accent); transition: all 0.3s; font-size: 0.8rem;" onmouseover="this.style.background='rgba(59, 130, 246, 0.3)'" onmouseout="this.style.background='rgba(59, 130, 246, 0.2)'">← Retour</a>
             </div>
         </div>
     </header>
@@ -464,89 +620,10 @@
         </div>
 
         <div class="title-row">
-            <div class="machine-title">Vue détaillée - Machine CTA</div>
+            <div class="machine-title" id="machine-display-title">CTA Salle Polyvalente</div>
         </div>
-
-        <!-- Galerie des CTAs disponibles -->
-        <div class="cta-gallery">
-            <div class="gallery-title">🏨 Sélectionnez une Machine CTA</div>
-            <div class="cta-grid">
-                <div class="cta-card active" id="cta-galerie-gauche" onclick="selectCTA(this, 'galerie-gauche')">
-                    <div class="cta-card-title">CTA Galerie Gauche</div>
-                    <div class="cta-card-status">
-                        <div class="status-item">
-                            <span class="status-label">Mode</span>
-                            <span class="status-value" data-cta="galerie-gauche-mode">Chauffage</span>
-                        </div>
-                        <div class="status-item">
-                            <span class="status-label">État</span>
-                            <span class="status-value" data-cta="galerie-gauche-etat">Actif</span>
-                        </div>
-                        <div class="status-item">
-                            <span class="status-label">T° Ambiance</span>
-                            <span class="status-value" data-cta="galerie-gauche-temp">21.5°C</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="cta-card" id="cta-galerie-droite" onclick="selectCTA(this, 'galerie-droite')">
-                    <div class="cta-card-title">CTA Galerie Droite</div>
-                    <div class="cta-card-status">
-                        <div class="status-item">
-                            <span class="status-label">Mode</span>
-                            <span class="status-value" data-cta="galerie-droite-mode">Climatisation</span>
-                        </div>
-                        <div class="status-item">
-                            <span class="status-label">État</span>
-                            <span class="status-value" data-cta="galerie-droite-etat">Inactif</span>
-                        </div>
-                        <div class="status-item">
-                            <span class="status-label">T° Ambiance</span>
-                            <span class="status-value" data-cta="galerie-droite-temp">22.0°C</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="cta-card" id="cta-salle-polyvalente" onclick="selectCTA(this, 'salle-polyvalente')">
-                    <div class="cta-card-title">CTA Salle Polyvalente</div>
-                    <div class="cta-card-status">
-                        <div class="status-item">
-                            <span class="status-label">Mode</span>
-                            <span class="status-value" data-cta="salle-polyvalente-mode">Chauffage</span>
-                        </div>
-                        <div class="status-item">
-                            <span class="status-label">État</span>
-                            <span class="status-value" data-cta="salle-polyvalente-etat">Actif</span>
-                        </div>
-                        <div class="status-item">
-                            <span class="status-label">T° Ambiance</span>
-                            <span class="status-value" data-cta="salle-polyvalente-temp">20.8°C</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="cta-card" id="cta-hall-reception" onclick="selectCTA(this, 'hall-reception')">
-                    <div class="cta-card-title">CTA Hall Réception</div>
-                    <div class="cta-card-status">
-                        <div class="status-item">
-                            <span class="status-label">Mode</span>
-                            <span class="status-value" data-cta="hall-reception-mode">Climatisation</span>
-                        </div>
-                        <div class="status-item">
-                            <span class="status-label">État</span>
-                            <span class="status-value" data-cta="hall-reception-etat">Actif</span>
-                        </div>
-                        <div class="status-item">
-                            <span class="status-label">T° Ambiance</span>
-                            <span class="status-value" data-cta="hall-reception-temp">21.2°C</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-
-        <div class="machine-container" id="machine-container">
+        <!-- Container de la machine -->
+        <div class="machine-container" id="machine-container" style="background-color: white !important;">
             <button class="component" id="mode" onclick="onComponentClick('mode')" title="Cliquer pour voir le détail du mode">
                 <div class="label">Mode</div>
                 <div class="value" id="mode-value">Chauffage</div>
@@ -582,51 +659,241 @@
                 <div class="value" id="extracteur-value">OFF</div>
             </button>
 
-            <div class="component slider-component" id="vanne">
-                <div class="label">Vanne ouverture</div>
-                <div class="value" id="vanne-value">85%</div>
-                <input type="range" min="0" max="100" value="85" class="slider" id="vanne-slider"
-                    oninput="onSliderChange('vanne', this.value)"
+            <button class="component" id="co2" onclick="onComponentClick('co2')" title="Niveau de CO2">
+                <div class="label">eCO2 Level</div>
+                <div class="value" id="co2-value">450 PPM</div>
+            </button>
+
+            <div class="component slider-component" id="vanne-chaud">
+                <div class="label">Vanne Chaud</div>
+                <div class="value" id="vanne-chaud-value">65%</div>
+                <input type="range" min="0" max="100" value="65" class="slider" id="vanne-chaud-slider"
+                    oninput="onSliderChange('vanne-chaud', this.value)"
+                    onclick="event.stopPropagation()">
+            </div>
+            <div class="component slider-component" id="vanne-froid" style="display:none;">
+                <div class="label">Vanne Froid</div>
+                <div class="value" id="vanne-froid-value">30%</div>
+                <input type="range" min="0" max="100" value="30" class="slider" id="vanne-froid-slider"
+                    oninput="onSliderChange('vanne-froid', this.value)"
                     onclick="event.stopPropagation()">
             </div>
 
             <!-- Extra temp boxes -->
-            <div class="extra-temp-box" id="temp-aller">
+            <div class="extra-temp-box" id="temp-aller" onclick="onComponentClick('temp-aller')" style="cursor: pointer;">
                 <div class="extra-label" id="temp-aller-label">Temp Aller</div>
                 <div class="extra-value" id="temp-aller-value">7.0°C</div>
             </div>
-            <div class="extra-temp-box" id="temp-retour">
+            <div class="extra-temp-box" id="temp-retour" onclick="onComponentClick('temp-retour')" style="cursor: pointer;">
                 <div class="extra-label" id="temp-retour-label">Temp Retour</div>
                 <div class="extra-value" id="temp-retour-value">12.0°C</div>
             </div>
 
         </div>
 
-        <!-- Schéma du flux d'air retiré -->
-        
-        <div class="bottom-bar-grid" style="margin-top: 1.5rem; display: grid; gap: 1rem; grid-template-columns: 1fr;">
-            <div class="commands-panel" style="padding: 1.5rem; background: var(--surface); border-radius: var(--radius); border: 1px solid #e5e7eb;">
-                <h3 style="margin-bottom: 1rem;">Commandes Manuelles</h3>
-                <div style="display: flex; gap: 1rem;">
-                    <button class="btn-cmd" id="btn-chauffage" data-topic="cta/chauffage" style="flex: 1; padding: 1rem; border-radius: 8px; border: 1px solid #d1d5db; background: white; cursor: pointer;">Chauffage OFF</button>
+
+        <!-- Energy Panel -->
+        <div style="margin-top: 2rem; background: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.08); border: 1px solid #e5e7eb;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 2px solid var(--surface2); padding-bottom: 0.5rem;">
+                <h2 style="margin: 0; font-size: 1.2rem; color: var(--text);">⚡ Énergie — Temps Réel & Bilan Journalier</h2>
+                <span id="live-badge" style="font-size: 0.7rem; background:#dcfce7; color:#15803d; padding:3px 10px; border-radius:99px; font-weight:600; display:none;">● LIVE</span>
+            </div>
+
+            <!-- Summary row -->
+            <div style="display: flex; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap;">
+                <div style="display:flex; flex-direction:column; align-items:center; background:#eff6ff; border-radius:10px; padding:1rem 1.5rem; min-width:130px;">
+                    <span style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:.05em; margin-bottom:.3rem;">Aujourd'hui</span>
+                    <span id="energy-today-value" style="font-size:1.9rem; font-weight:700; color:var(--accent);">--</span>
+                    <span style="font-size:0.7rem; color:var(--text-muted);">kWh</span>
+                </div>
+                <div style="display:flex; flex-direction:column; align-items:center; background:#f0fdf4; border-radius:10px; padding:1rem 1.5rem; min-width:130px; position:relative;">
+                    <span style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:.05em; margin-bottom:.3rem;">Puissance</span>
+                    <span id="energy-live-value" style="font-size:1.9rem; font-weight:700; color:#10b981;">--</span>
+                    <span style="font-size:0.7rem; color:var(--text-muted);">W</span>
+                    <span id="energy-live-dot" style="position:absolute; top:8px; right:10px; width:8px; height:8px; background:#d1d5db; border-radius:50%;"></span>
+                </div>
+                <div style="display:flex; flex-direction:column; align-items:center; background:#fefce8; border-radius:10px; padding:1rem 1.5rem; min-width:130px;">
+                    <span style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:.05em; margin-bottom:.3rem;">kWh Session</span>
+                    <span id="energy-session-value" style="font-size:1.9rem; font-weight:700; color:#d97706;">--</span>
+                    <span style="font-size:0.7rem; color:var(--text-muted);">kWh</span>
+                </div>
+                <div style="display:flex; flex-direction:column; align-items:center; background:#fff7ed; border-radius:10px; padding:1rem 1.5rem; min-width:130px;">
+                    <span style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:.05em; margin-bottom:.3rem;">Tension</span>
+                    <span id="kpi-tension-val" style="font-size:1.9rem; font-weight:700; color:#ea580c;">--</span>
+                    <span style="font-size:0.7rem; color:var(--text-muted);">V</span>
+                </div>
+                <div style="display:flex; flex-direction:column; align-items:center; background:#f0f9ff; border-radius:10px; padding:1rem 1.5rem; min-width:130px;">
+                    <span style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:.05em; margin-bottom:.3rem;">Courant</span>
+                    <span id="kpi-courant-val" style="font-size:1.9rem; font-weight:700; color:#0284c7;">--</span>
+                    <span style="font-size:0.7rem; color:var(--text-muted);">A</span>
                 </div>
             </div>
+
+            <!-- Live kWh line chart -->
+            <div style="margin-bottom:0.5rem; font-size:0.8rem; color:var(--text-muted); font-weight:600; text-transform:uppercase; letter-spacing:.05em;">Courbe kWh cumulés (session en cours)</div>
+            <div style="height: 220px; width: 100%; margin-bottom: 1.5rem;">
+                <canvas id="kwhRealtimeChart"></canvas>
+            </div>
+
+            <!-- Daily bar chart -->
+            <div style="margin-bottom:0.5rem; font-size:0.8rem; color:var(--text-muted); font-weight:600; text-transform:uppercase; letter-spacing:.05em;">Bilan journalier — 7 derniers jours <code style="background:#f1f5f9; padding:2px 6px; border-radius:4px; font-size:0.7rem;">SUM(energie_kwh)</code></div>
+            <div style="height: 220px; width: 100%;">
+                <canvas id="energyChart"></canvas>
+            </div>
         </div>
+
+        <!-- Schéma du flux d'air retiré -->
+        
     </main>
 
     <script>
+        // Mapping for display names
+        const SENSOR_NAMES = {
+            'temp-salle': 'Température Ambiante (Salle)',
+            'temp-reprise': 'Température de Reprise',
+            'temp-ambiante': 'Température de Soufflage', // Consistent with previous mapping
+            'temp-aller': 'Température Aller (Circuit)',
+            'temp-retour': 'Température Retour (Circuit)'
+        };
+
+        // Mapping for DB columns
+        const SENSOR_COLUMNS = {
+            'temp-salle': 'salle',
+            'temp-reprise': 'reprise',
+            'temp-ambiante': 'soufflage',
+            'temp-aller': ['chaud_aller', 'froid_aller'],
+            'temp-retour': ['chaud_retour', 'froid_retour']
+        };
+
         // Gestion du clic sur un composant
         function onComponentClick(id) {
             if (id === 'etat') { toggleEtat(); return; }
             if (id === 'mode') { toggleMode(); return; }
             if (id === 'consigne') { changeConsigne(); return; }
+            
+            // IF CLICK ON TEMP BOX -> SHOW SPECIFIC HISTORY
+            if (id.includes('temp')) {
+                openHistoryModal(id);
+                return;
+            }
+
             const el = document.getElementById(id);
             if (!el) return;
             el.classList.add('selected');
             setTimeout(() => el.classList.remove('selected'), 600);
         }
 
-        let vanneManuallyChanged = false;
+        // --- History Modal Logic ---
+        async function openHistoryModal(sensorId) {
+            const modal = document.getElementById('historyModal');
+            const loading = document.getElementById('history-loading');
+            const table = document.getElementById('history-table');
+            const body = document.getElementById('history-table-body');
+            const titleEl = modal.querySelector('h2 span:last-child');
+            const headerRow = table.querySelector('thead tr');
+            
+            if (!modal || !loading || !table || !body) return;
+
+            // Set Title
+            const friendlyName = SENSOR_NAMES[sensorId] || 'Température';
+            titleEl.textContent = `Historique : ${friendlyName}`;
+
+            modal.style.display = 'block';
+            loading.style.display = 'block';
+            loading.innerHTML = '<p>Récupération des données SQL...</p>';
+            table.style.display = 'none';
+            body.innerHTML = '';
+
+            // Update Header for the specific sensor
+            headerRow.innerHTML = `
+                <th style="width: 50%;">Date & Heure</th>
+                <th style="width: 50%; text-align: center; background: #eff6ff;">Valeur Enregistrée</th>
+            `;
+
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+            try {
+                const res = await fetch('/api/history/temperatures?limit=30&t=' + Date.now(), {
+                    signal: controller.signal
+                });
+                clearTimeout(timeoutId);
+                const data = await res.json();
+                
+                loading.style.display = 'none';
+                table.style.display = 'table';
+                
+                if (!data || data.length === 0) {
+                    body.innerHTML = '<tr><td colspan="2" style="text-align:center; padding:2rem; color:#64748b;">Aucune donnée trouvée.</td></tr>';
+                    return;
+                }
+
+                const colKey = SENSOR_COLUMNS[sensorId];
+                const isAllerRetour = Array.isArray(colKey);
+
+                // Update Header
+                if (isAllerRetour) {
+                    headerRow.innerHTML = `
+                        <th style="width: 34%;">Date & Heure</th>
+                        <th style="width: 33%; text-align: center; background: #fff7ed; color: #9a3412;">Valeur CHAUD</th>
+                        <th style="width: 33%; text-align: center; background: #eff6ff; color: #1e40af;">Valeur FROID</th>
+                    `;
+                } else {
+                    headerRow.innerHTML = `
+                        <th style="width: 50%;">Date & Heure</th>
+                        <th style="width: 50%; text-align: center; background: #f8fafc;">Valeur Enregistrée</th>
+                    `;
+                }
+
+                body.innerHTML = data.map(row => {
+                    const date = new Date(row.timestamp).toLocaleString();
+                    
+                    if (isAllerRetour) {
+                        const valChaud = row[colKey[0]];
+                        const valFroid = row[colKey[1]];
+                        return `
+                            <tr>
+                                <td style="font-weight:600; color:#64748b; font-size:0.75rem;">${date}</td>
+                                <td style="text-align:center; font-weight:700; color:#9a3412; background:#fff7ed;">
+                                    ${valChaud !== null ? valChaud + '°C' : '--'}
+                                </td>
+                                <td style="text-align:center; font-weight:700; color:#1e40af; background:#eff6ff;">
+                                    ${valFroid !== null ? valFroid + '°C' : '--'}
+                                </td>
+                            </tr>
+                        `;
+                    } else {
+                        const val = row[colKey];
+                        return `
+                            <tr>
+                                <td style="font-weight:600; color:#64748b;">${date}</td>
+                                <td style="text-align:center; font-weight:700; color:var(--accent); font-size:1.1rem; background:#f8fafc;">
+                                    ${val !== null ? val + '°C' : '--'}
+                                </td>
+                            </tr>
+                        `;
+                    }
+                }).join('');
+            } catch (e) {
+                clearTimeout(timeoutId);
+                loading.innerHTML = `<p style="color:#ef4444;">Erreur: ${e.message}</p>`;
+            }
+        }
+
+        function closeHistoryModal() {
+            document.getElementById('historyModal').style.display = 'none';
+        }
+
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            const modal = document.getElementById('historyModal');
+            if (event.target == modal) {
+                closeHistoryModal();
+            }
+        }
+
+        let vanneChaudManuallyChanged = false;
+        let vanneFroidManuallyChanged = false;
         let humiditeManuallyChanged = false;
         let consigneManuallyChanged = false;
         let extracteurManuallyToggled = false;
@@ -635,8 +902,18 @@
             const valueEl = document.getElementById(`${field}-value`);
             if (!valueEl) return;
             valueEl.textContent = val + '%';
-            if (field === 'vanne') vanneManuallyChanged = true;
-            if (field === 'humidite') humiditeManuallyChanged = true;
+            if (field === 'vanne-chaud') {
+                vanneChaudManuallyChanged = true;
+                sendCommand('vanne_chaud', val);
+            }
+            if (field === 'vanne-froid') {
+                vanneFroidManuallyChanged = true;
+                sendCommand('vanne_froid', val);
+            }
+            if (field === 'humidite') {
+                humiditeManuallyChanged = true;
+                sendCommand('humidite', val);
+            }
 
             // Couleur dynamique selon valeur
             const slider = document.getElementById(`${field}-slider`);
@@ -688,7 +965,11 @@
             const idx = MODES.indexOf(current);
             const newMode = MODES[(idx + 1) % MODES.length];
 
+            // Save to localStorage so updateValuesFromStorage knows which sensor to show
+            localStorage.setItem('mode_cta', newMode === 'Chauffage' ? 'chauffage' : 'clim');
+
             modeManuallyToggled = true;
+            sendCommand('mode', newMode);
 
             valueEl.classList.add('etat-fade-out');
             setTimeout(() => {
@@ -697,6 +978,9 @@
                 applyModeStyle(newMode);
                 valueEl.classList.add('etat-fade-in');
                 setTimeout(() => valueEl.classList.remove('etat-fade-in'), 400);
+
+                // Sync live values immediately
+                updateValuesFromStorage();
 
                 // Sync carte CTA
                 const cardModeSpan = document.querySelector(`[data-cta="${currentCTA}-mode"]`);
@@ -731,6 +1015,12 @@
                 }
             }
 
+            // Show the relevant vanne and hide the other
+            const vanneChaudEl = document.getElementById('vanne-chaud');
+            const vanneFroidEl = document.getElementById('vanne-froid');
+            if (vanneChaudEl) vanneChaudEl.style.display = (mode === 'Chauffage')    ? '' : 'none';
+            if (vanneFroidEl) vanneFroidEl.style.display = (mode === 'Climatisation') ? '' : 'none';
+
             // Show/hide extra temp boxes
             const allerBox = document.getElementById('temp-aller');
             const retourBox = document.getElementById('temp-retour');
@@ -755,11 +1045,9 @@
                 if (allerLab) allerLab.style.color = color;
                 if (retourLab) retourLab.style.color = color;
                 if (allerVal) {
-                    allerVal.textContent = isHeating ? '45.0°C' : '7.0°C';
                     allerVal.style.color = textColor;
                 }
                 if (retourVal) {
-                    retourVal.textContent = isHeating ? '38.0°C' : '12.0°C';
                     retourVal.style.color = textColor;
                 }
             } else {
@@ -797,6 +1085,8 @@
                 // ⚡ NEW: Sync status directly to the MySQL database via Node.js
                 console.log("[DEBUG] Sending PUT request via fetch to update DB:", { ctaSlug: currentCTA, status: newValue.toLowerCase() });
                 
+                sendCommand('etat', newValue.toLowerCase());
+
                 fetch('/api/equipments/status', {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
@@ -807,6 +1097,23 @@
                 .catch(e => console.error('[ERROR] Failed to sync equipment status to DB:', e));
 
             }, 250);
+        }
+
+        // Helper to send MQTT commands via Backend
+        function sendCommand(type, value) {
+            const deviceMap = {
+                'galerie-gauche': 1,
+                'galerie-droite': 2, // Assuming these IDs exist
+                'salle-polyvalente': 3,
+                'hall-reception': 4
+            };
+            const deviceId = deviceMap[currentCTA] || 1;
+
+            fetch('/api/commands', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ deviceId, actuatorType: type, value })
+            }).catch(e => console.error('Failed to send command:', e));
         }
 
         // État de l'édition — REMOVED
@@ -826,7 +1133,8 @@
                 tempReprise: '19.8°C',
                 tempSoufflage: '23.0°C',
                 tempNeuf: '6.0°C',
-                vanne: '65%',
+                vanneChaud: '65%',
+                vanneFroid: '0%',
                 humidite: '40%',
                 extracteur: 'OFF'
             },
@@ -838,7 +1146,8 @@
                 tempReprise: '23.0°C',
                 tempSoufflage: '18.5°C',
                 tempNeuf: '10.0°C',
-                vanne: '30%',
+                vanneChaud: '0%',
+                vanneFroid: '30%',
                 humidite: '55%',
                 extracteur: 'OFF'
             },
@@ -850,7 +1159,8 @@
                 tempReprise: '20.0°C',
                 tempSoufflage: '22.0°C',
                 tempNeuf: '7.5°C',
-                vanne: '72%',
+                vanneChaud: '72%',
+                vanneFroid: '0%',
                 humidite: '48%',
                 extracteur: 'ON'
             },
@@ -862,7 +1172,8 @@
                 tempReprise: '21.0°C',
                 tempSoufflage: '21.3°C',
                 tempNeuf: '9.0°C',
-                vanne: '10%',
+                vanneChaud: '0%',
+                vanneFroid: '10%',
                 humidite: '50%',
                 extracteur: 'ON'
             }
@@ -928,13 +1239,16 @@
                 return null;
             }
 
-            const brokerUrl = 'wss://broker.hivemq.com:8884/mqtt';
+            // Must use the same private HiveMQ Cloud broker as the ESP32/mock
+            const brokerUrl = 'wss://03c494c6704246e79abf5b75add3b57d.s1.eu.hivemq.cloud:8884/mqtt';
             const topicFilter = 'cta/telemetry';
-            const clientId = 'ctaaaa-frontend-' + Math.random().toString(16).slice(2);
+            const clientId = 'cta-frontend-' + Math.random().toString(16).slice(2);
             const client = mqtt.connect(brokerUrl, {
                 clientId,
+                username: 'saber',
+                password: 'Hamdi2002',
                 clean: true,
-                connectTimeout: 5000,
+                connectTimeout: 8000,
             });
 
             client.on('connect', () => {
@@ -951,11 +1265,47 @@
             client.on('message', (topic, payload) => {
                 try {
                     const data = JSON.parse(payload.toString());
-                    const capteurId = data.capteur_id || data.capteurId || data.sensorId;
-                    const valeur = data.valeur ?? data.value ?? data.v;
-                    if (capteurId && typeof valeur !== 'undefined') {
-                        applySensorPayload(capteurId, valeur);
+                    console.log('[MQTT direct] received:', data);
+
+                    // Update machine display directly from raw MQTT payload
+                    if (data.salle      != null) updateElement('temp-salle-value',    parseFloat(data.salle).toFixed(1) + '°C');
+                    if (data.soufflage  != null) updateElement('temp-ambiante-value', parseFloat(data.soufflage).toFixed(1) + '°C');
+                    if (data.reprise    != null) updateElement('temp-reprise-value',  parseFloat(data.reprise).toFixed(1) + '°C');
+
+                    const currentMode = localStorage.getItem('mode_cta') || 'chauffage';
+                    if (currentMode === 'chauffage' || currentMode === 'chaud') {
+                        if (data.chaud_aller  != null) updateElement('temp-aller-value',  parseFloat(data.chaud_aller).toFixed(1) + '°C');
+                        if (data.chaud_retour != null) updateElement('temp-retour-value', parseFloat(data.chaud_retour).toFixed(1) + '°C');
+                    } else {
+                        if (data.froid_aller  != null) updateElement('temp-aller-value',  parseFloat(data.froid_aller).toFixed(1) + '°C');
+                        if (data.froid_retour != null) updateElement('temp-retour-value', parseFloat(data.froid_retour).toFixed(1) + '°C');
                     }
+
+                    if (data.eco2 != null) {
+                        updateElement('co2-value', parseInt(data.eco2) + ' PPM');
+                        const co2Box = document.getElementById('co2');
+                        if (co2Box) co2Box.classList.toggle('danger', data.eco2 > 1000);
+                    }
+
+                    // Energy & KPIs
+                    onEnergyTelemetry(data);
+
+                    const deltaT = (data.soufflage != null && data.reprise != null)
+                        ? parseFloat((data.soufflage - data.reprise).toFixed(1)) : null;
+                    const thermalKW = deltaT !== null ? Math.abs(deltaT) * 0.5 * 1.005 : null;
+                    const cop = (thermalKW && data.puissance > 50)
+                        ? parseFloat((thermalKW * 1000 / data.puissance).toFixed(2)) : null;
+                    const sfp = data.puissance > 0 ? parseFloat((data.puissance * 0.3 / 3600).toFixed(3)) : null;
+
+                    updateKPIs({
+                        humidite: data.humidite,
+                        pression_filtre: data.pression_filtre,
+                        vitesse_ventilateur: data.vitesse_ventilateur,
+                        delta_t: deltaT, cop, sfp,
+                        tension: data.tension,
+                        courant: data.courant,
+                        tvoc: data.tvoc
+                    });
                 } catch (err) {
                     console.warn('Invalid MQTT payload', err);
                 }
@@ -972,7 +1322,8 @@
             currentCTA = ctaId;
             etatManuallyToggled = false;
             modeManuallyToggled = false;
-            vanneManuallyChanged = false;
+            vanneChaudManuallyChanged = false;
+            vanneFroidManuallyChanged = false;
             humiditeManuallyChanged = false;
             consigneManuallyChanged = false;
             extracteurManuallyToggled = false;
@@ -982,16 +1333,28 @@
             card.classList.add('active');
             
             // Mettre à jour le titre
-            document.querySelector('.machine-title').textContent = card.querySelector('.cta-card-title').textContent;
+            const titleEl = document.getElementById('machine-display-title');
+            if (titleEl) {
+                if (ctaId === 'salle-polyvalente') titleEl.textContent = 'CTA Salle Polyvalente';
+                else if (ctaId === 'galerie-gauche') titleEl.textContent = 'CTA Galerie Gauche';
+                else if (ctaId === 'galerie-droite') titleEl.textContent = 'CTA Galerie Droite';
+                else if (ctaId === 'hall-reception') titleEl.textContent = 'CTA Hall Réception';
+            }
             
             // Charger les données pour ce CTA
             loadPositions();
             updateValuesFromStorage();
         }
 
+        // Clé localStorage dépendante du mode
+        function getPositionKey() {
+            const mode = localStorage.getItem('mode_cta') || 'chauffage';
+            return 'component_positions_' + currentCTA + '_' + mode;
+        }
+
         // Charger les positions sauvegardées
         function loadPositions() {
-            const saved = localStorage.getItem('component_positions_' + currentCTA);
+            const saved = localStorage.getItem(getPositionKey());
             if (saved) {
                 Object.assign(positions, JSON.parse(saved));
                 applyPositions();
@@ -1000,7 +1363,7 @@
 
         // Appliquer les positions aux éléments
         function applyPositions() {
-            const ids = ['mode', 'etat', 'consigne', 'temp-ambiante', 'temp-salle', 'temp-reprise', 'vanne', 'temp-aller', 'temp-retour', 'extracteur'];
+            const ids = ['mode', 'etat', 'consigne', 'temp-ambiante', 'temp-salle', 'temp-reprise', 'vanne-chaud', 'vanne-froid', 'temp-aller', 'temp-retour', 'extracteur'];
             ids.forEach(id => {
                 const el = document.getElementById(id);
                 if (el && positions[id]) {
@@ -1031,7 +1394,7 @@
             });
 
             if (!editLayoutMode) {
-                localStorage.setItem('component_positions_' + currentCTA, JSON.stringify(positions));
+                localStorage.setItem(getPositionKey(), JSON.stringify(positions));
             }
         }
 
@@ -1084,6 +1447,10 @@
             function closeDragElement() {
                 document.onmouseup = null;
                 document.onmousemove = null;
+                // Auto-save when dropped
+                if (editLayoutMode) {
+                    localStorage.setItem('component_positions_' + currentCTA, JSON.stringify(positions));
+                }
             }
         }
 
@@ -1105,11 +1472,17 @@
             if (!consigneManuallyChanged) {
                 updateElement('consigne-value', def.consigne);
             }
-            if (!vanneManuallyChanged) {
-                updateElement('vanne-value', def.vanne);
-                const v = parseInt(def.vanne);
-                const vs = document.getElementById('vanne-slider');
-                if (vs) { vs.value = v; onSliderChange('vanne', v); vanneManuallyChanged = false; }
+            if (!vanneChaudManuallyChanged) {
+                const vc = parseInt(def.vanneChaud || '0');
+                updateElement('vanne-chaud-value', vc + '%');
+                const vcs = document.getElementById('vanne-chaud-slider');
+                if (vcs) { vcs.value = vc; onSliderChange('vanne-chaud', vc); vanneChaudManuallyChanged = false; }
+            }
+            if (!vanneFroidManuallyChanged) {
+                const vf = parseInt(def.vanneFroid || '0');
+                updateElement('vanne-froid-value', vf + '%');
+                const vfs = document.getElementById('vanne-froid-slider');
+                if (vfs) { vfs.value = vf; onSliderChange('vanne-froid', vf); vanneFroidManuallyChanged = false; }
             }
             if (!humiditeManuallyChanged) {
                 const hVal = def.humidite || '50%';
@@ -1137,9 +1510,11 @@
                 const reverseSlugMap = {};
                 Object.entries(slugMap).forEach(([name, slug]) => reverseSlugMap[slug] = name);
 
-                // Find the equipment matching the currently selected CTA
+                // Find the equipment matching the currently selected CTA.
+                // Fall back to the first available equipment so a single DB CTA
+                // (e.g. 'CTA Centrale') always provides live data to the UI.
                 const eqName = reverseSlugMap[currentCTA];
-                const matchedEq = allEquipments.find(e => e.name === eqName);
+                const matchedEq = allEquipments.find(e => e.name === eqName) || allEquipments[0];
 
                 // Update equipment status (actif/inactif) from DB
                 if (matchedEq && !etatManuallyToggled) {
@@ -1154,15 +1529,48 @@
                 }
 
                 // Update live temperature from DB telemetry
-                if (matchedEq && matchedEq.temperature !== null && matchedEq.temperature !== undefined) {
-                    const liveTemp = parseFloat(matchedEq.temperature).toFixed(1) + '°C';
-                    updateElement('temp-salle-value', liveTemp);
-                    // Derive soufflage (T° ambiante ID) from ambient
-                    const soufflageTemp = (parseFloat(matchedEq.temperature) + 1.2).toFixed(1) + '°C';
-                    updateElement('temp-ambiante-value', soufflageTemp);
-                    // Derive reprise from ambient (slightly lower)
-                    const repriseTemp = (parseFloat(matchedEq.temperature) - 1.5).toFixed(1) + '°C';
-                    updateElement('temp-reprise-value', repriseTemp);
+                if (matchedEq && matchedEq.temperature !== null) {
+                    // Update Salle
+                    updateElement('temp-salle-value', parseFloat(matchedEq.temperature).toFixed(1) + '°C');
+                    
+                    // Update Soufflage
+                    if (matchedEq.soufflage !== null) {
+                        updateElement('temp-ambiante-value', parseFloat(matchedEq.soufflage).toFixed(1) + '°C');
+                    }
+                    
+                    // Update Reprise
+                    if (matchedEq.reprise !== null) {
+                        updateElement('temp-reprise-value', parseFloat(matchedEq.reprise).toFixed(1) + '°C');
+                    }
+
+                    // Update Aller/Retour based on current mode
+                    const currentMode = localStorage.getItem('mode_cta') || 'chauffage';
+                    const isHeating = (currentMode === 'chauffage' || currentMode === 'chaud');
+                    
+                    if (isHeating) {
+                        if (matchedEq.chaud_aller !== null) updateElement('temp-aller-value', parseFloat(matchedEq.chaud_aller).toFixed(1) + '°C');
+                        if (matchedEq.chaud_retour !== null) updateElement('temp-retour-value', parseFloat(matchedEq.chaud_retour).toFixed(1) + '°C');
+                    } else {
+                        if (matchedEq.froid_aller !== null) updateElement('temp-aller-value', parseFloat(matchedEq.froid_aller).toFixed(1) + '°C');
+                        if (matchedEq.froid_retour !== null) updateElement('temp-retour-value', parseFloat(matchedEq.froid_retour).toFixed(1) + '°C');
+                    }
+
+                    // Update CO2 level
+                    if (matchedEq.eco2 !== null) {
+                        const co2Val = parseInt(matchedEq.eco2);
+                        updateElement('co2-value', co2Val + ' PPM');
+                        const co2Box = document.getElementById('co2');
+                        if (co2Box) {
+                            if (co2Val > 1000) co2Box.classList.add('danger');
+                            else co2Box.classList.remove('danger');
+                        }
+                    }
+
+                    // Update energy chart + KPI cards from polling
+                    if (matchedEq.puissance !== null) {
+                        updateEnergyChart(matchedEq.puissance);
+                    }
+                    updateKPIs(matchedEq);
 
                     // Also update the CTA card temperature in the gallery
                     const cardTempSpan = document.querySelector(`[data-cta="${currentCTA}-temp"]`);
@@ -1230,6 +1638,8 @@
             const newValue = isOn ? 'OFF' : 'ON';
 
             extracteurManuallyToggled = true;
+            sendCommand('extractor', newValue.toLowerCase());
+
             valueEl.classList.add('etat-fade-out');
             setTimeout(() => {
                 valueEl.textContent = newValue;
@@ -1297,10 +1707,12 @@
 
             // Initialiser les couleurs des sliders
             setTimeout(() => {
-                const vSlider = document.getElementById('vanne-slider');
-                const hSlider = document.getElementById('humidite-slider');
-                if (vSlider) onSliderChange('vanne', vSlider.value);
-                if (hSlider) onSliderChange('humidite', hSlider.value);
+                const vcSlider = document.getElementById('vanne-chaud-slider');
+                const vfSlider = document.getElementById('vanne-froid-slider');
+                const hSlider  = document.getElementById('humidite-slider');
+                if (vcSlider) onSliderChange('vanne-chaud', vcSlider.value);
+                if (vfSlider) onSliderChange('vanne-froid',  vfSlider.value);
+                if (hSlider)  onSliderChange('humidite', hSlider.value);
             }, 100);
 
             // Rafraîchissement périodique avec gestion des promesses
@@ -1314,10 +1726,358 @@
             updateValuesFromStorage().catch(err => {
                 console.error('Initial update error:', err);
             });
+
+            // Initialize Energy Chart
+            initEnergyChart();
+
+            // ─── Notification & Socket.io Logic ─────────────────────
+            const socket = io();
+            const notifCount = document.getElementById('notif-count');
+            const notifList = document.getElementById('notif-list');
+            const notifDropdown = document.getElementById('notif-dropdown');
+            const notifTrigger = document.getElementById('notif-trigger');
+
+            // Toggle Dropdown
+            if (notifTrigger) {
+                notifTrigger.onclick = (e) => {
+                    e.stopPropagation();
+                    notifDropdown.style.display = notifDropdown.style.display === 'block' ? 'none' : 'block';
+                };
+            }
+            document.onclick = () => { if (notifDropdown) notifDropdown.style.display = 'none'; };
+            if (notifDropdown) notifDropdown.onclick = (e) => e.stopPropagation();
+
+            async function loadAlarms() {
+                try {
+                    console.log("[DEBUG] Fetching alarms from API...");
+                    const res = await fetch('/api/alarms/active?t=' + Date.now());
+                    const alarms = await res.json();
+                    console.log("[DEBUG] Alarms received:", alarms.length);
+                    renderAlarms(alarms);
+                } catch (e) { 
+                    console.error('Failed to load alarms:', e); 
+                }
+            }
+
+            function renderAlarms(alarms) {
+                const notifCount = document.getElementById('notif-count');
+                const notifList = document.getElementById('notif-list');
+                if (!notifList) return;
+
+                if (!alarms || alarms.length === 0) {
+                    notifList.innerHTML = '<div style="padding: 2rem; text-align: center; color: #999; font-size: 0.8rem;">Aucune alerte enregistrée</div>';
+                    if (notifCount) notifCount.style.display = 'none';
+                    return;
+                }
+
+                if (notifCount) {
+                    notifCount.textContent = alarms.length;
+                    notifCount.style.display = 'flex';
+                }
+
+                notifList.innerHTML = alarms.map(a => `
+                    <div style="padding: 0.75rem 1rem; border-bottom: 1px solid #f3f4f6; display: flex; gap: 12px;">
+                        <div style="width: 36px; height: 36px; background: rgba(239,68,68,0.1); color: #ef4444; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">🚨</div>
+                        <div style="flex: 1;">
+                            <div style="font-weight: 600; font-size: 0.82rem; color: #1f2937;">${a.message || 'Alerte'}</div>
+                            <div style="font-size: 0.75rem; color: #6b7280;">${new Date(a.timestamp).toLocaleString()}</div>
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            // renderAlertsLog and clearAlertsHistory have been removed as requested.
+
+            socket.on('alarm', (alarm) => {
+                // 1. Show Toast
+                const container = document.getElementById('alarm-container');
+                const toast = document.createElement('div');
+                toast.className = `alarm-toast ${alarm.severity}`;
+                toast.innerHTML = `
+                    <div style="font-size: 1.5rem;">🚨</div>
+                    <div>
+                        <div style="font-weight: 700; font-size: 0.85rem;">ALERTE SEUIL</div>
+                        <div style="font-size: 0.8rem;">${alarm.message}</div>
+                    </div>
+                    <button onclick="this.parentElement.remove()" style="margin-left: auto; border: none; background: none; cursor: pointer;">✕</button>
+                `;
+                container.appendChild(toast);
+                setTimeout(() => toast.remove(), 10000);
+
+                // 2. Add to Notification Dropdown instantly
+                const notifList = document.getElementById('notif-list');
+                const notifCount = document.getElementById('notif-count');
+                if (notifList) {
+                    const emptyMsg = notifList.querySelector('div[style*="text-align: center"]');
+                    if (emptyMsg) emptyMsg.remove();
+                    
+                    const newNotif = document.createElement('div');
+                    newNotif.style.cssText = "padding: 0.75rem 1rem; border-bottom: 1px solid #f3f4f6; display: flex; gap: 12px; transition: background 0.2s; background: #fffaf0;";
+                    newNotif.innerHTML = `
+                        <div style="width: 36px; height: 36px; background: rgba(239,68,68,0.1); color: #ef4444; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 1rem;">🚨</div>
+                        <div style="flex: 1;">
+                            <div style="font-weight: 600; font-size: 0.82rem; margin-bottom: 2px; color: #1f2937;">${alarm.message}</div>
+                            <div style="font-size: 0.78rem; color: #6b7280; line-height: 1.2;">Valeur: ${alarm.value || '--'}°C | ${new Date().toLocaleString()}</div>
+                        </div>
+                    `;
+                    notifList.prepend(newNotif);
+                    
+                    const count = parseInt(notifCount.textContent) || 0;
+                    notifCount.textContent = count + 1;
+                    notifCount.style.display = 'flex';
+                }
+
+                // 3. Add to History Log Table instantly
+                const logBody = document.getElementById('alerts-log-body');
+                if (logBody) {
+                    const emptyRow = logBody.querySelector('td[colspan="4"]');
+                    if (emptyRow) emptyRow.parentElement.remove();
+
+                    const row = document.createElement('tr');
+                    row.style.borderBottom = "1px solid #eee";
+                    row.style.background = "#fffaf0"; // Highlight new
+                    row.innerHTML = `
+                        <td style="padding: 12px;"><span style="background: #fee2e2; color: #ef4444; padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: 700;">${(alarm.type || 'Temp').toUpperCase()}</span></td>
+                        <td style="padding: 12px; font-weight: 500;">${alarm.message}</td>
+                        <td style="padding: 12px; color: var(--danger); font-weight: 700;">${alarm.value || '--'}°C</td>
+                        <td style="padding: 12px; color: #666;">${new Date().toLocaleString()}</td>
+                    `;
+                    logBody.prepend(row);
+                }
+            });
+
+            // Handle Clear All
+            const markAllReadBtn = document.getElementById('mark-all-read');
+            if (markAllReadBtn) {
+                markAllReadBtn.onclick = async (e) => {
+                    e.preventDefault();
+                    if (confirm('Voulez-vous vraiment effacer tout l\'historique des alertes ?')) {
+                        try {
+                            await fetch('/api/alarms/all', { method: 'DELETE' });
+                            loadAlarms();
+                        } catch (err) { console.error('Failed to clear alerts', err); }
+                    }
+                };
+            }
+
+            // Initial Load
+            loadAlarms();
+
+            // ── Socket.io: PRIMARY live data path (instant, no polling delay) ──
+            socket.on('telemetry', (msg) => {
+                if (!msg || !msg.data) return;
+                const d = msg.data;
+
+                // Energy live
+                onEnergyTelemetry(d);
+
+                // KPIs from live telemetry (server emits all fields in data)
+                // Compute delta_t and cop client-side from raw fields
+                const deltaT = (d.soufflage != null && d.reprise != null)
+                    ? parseFloat((d.soufflage - d.reprise).toFixed(1)) : null;
+                const thermalKW = deltaT !== null ? Math.abs(deltaT) * 0.5 * 1.005 : null;
+                const cop = (thermalKW && d.puissance > 50)
+                    ? parseFloat((thermalKW * 1000 / d.puissance).toFixed(2)) : null;
+                const sfp = d.puissance > 0 ? parseFloat((d.puissance * 0.3 / 3600).toFixed(3)) : null;
+
+                updateKPIs({
+                    humidite: d.humidite,
+                    pression_filtre: d.pression_filtre,
+                    vitesse_ventilateur: d.vitesse_ventilateur,
+                    delta_t: deltaT,
+                    cop: cop,
+                    sfp: sfp,
+                    tension: d.tension,
+                    courant: d.courant,
+                    tvoc: d.tvoc
+                });
+            });
         })();
     </script>
     <script>
-    // Auth guard pour machine.php
+    // ═══════════════════════════════════════════════════════
+    // ENERGY & KPI LOGIC
+    // ═══════════════════════════════════════════════════════
+    let energyChart = null;
+    let kwhRealtimeChart = null;
+    let sessionKwhStart = null;
+
+    // ── Helpers ──────────────────────────────────────────
+    function setKpi(id, value, unit, warnMax, dangerMax) {
+        const card = document.getElementById(id);
+        const valEl = document.getElementById(id + '-val');
+        if (!valEl) return;
+        const display = (value !== null && value !== undefined) ? String(value) : '--';
+        if (valEl.textContent !== display) {
+            valEl.textContent = display;
+            if (card) { card.classList.add('kpi-updated'); setTimeout(() => card.classList.remove('kpi-updated'), 400); }
+        }
+        if (card) {
+            card.classList.remove('alert', 'warn');
+            const n = parseFloat(value);
+            if (!isNaN(n)) {
+                if (dangerMax !== undefined && n > dangerMax) card.classList.add('alert');
+                else if (warnMax !== undefined && n > warnMax) card.classList.add('warn');
+            }
+        }
+    }
+
+    function updateLivePower(watts) {
+        const el = document.getElementById('energy-live-value');
+        const dot = document.getElementById('energy-live-dot');
+        const badge = document.getElementById('live-badge');
+        if (!el) return;
+        el.textContent = (watts != null) ? parseFloat(watts).toFixed(1) : '--';
+        if (dot) { dot.style.background = '#10b981'; clearTimeout(dot._t); dot._t = setTimeout(() => { dot.style.background = '#d1d5db'; }, 4000); }
+        if (badge) badge.style.display = 'inline';
+    }
+
+    function updateSessionKwh(kwh) {
+        if (kwh == null) return;
+        if (sessionKwhStart === null) sessionKwhStart = kwh;
+        const el = document.getElementById('energy-session-value');
+        if (el) el.textContent = Math.max(0, kwh - sessionKwhStart).toFixed(4);
+    }
+
+    // ── Real-time kWh + Puissance line chart ─────────────
+    async function initKwhRealtimeChart() {
+        const canvas = document.getElementById('kwhRealtimeChart');
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        let history = [];
+        try { const r = await fetch('/api/energy/realtime?limit=60'); history = await r.json(); } catch(e) {}
+        if (history.length > 0) sessionKwhStart = history[0].energie_kwh;
+
+        kwhRealtimeChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: history.map(h => new Date(h.timestamp).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })),
+                datasets: [
+                    {
+                        label: 'kWh cumulés',
+                        data: history.map(h => parseFloat(h.energie_kwh || 0)),
+                        borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,0.10)',
+                        borderWidth: 2, fill: true, tension: 0.4, pointRadius: 0, pointHoverRadius: 4, yAxisID: 'y'
+                    },
+                    {
+                        label: 'Puissance (W)',
+                        data: history.map(h => parseFloat(h.puissance || 0)),
+                        borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,0.07)',
+                        borderWidth: 2, fill: false, tension: 0.4, pointRadius: 0, yAxisID: 'yW'
+                    }
+                ]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                animation: { duration: 0 },
+                scales: {
+                    y:  { position: 'left',  beginAtZero: false, grid: { color: '#f3f4f6' }, title: { display: true, text: 'kWh', color: '#d97706', font: { size: 11 } }, ticks: { color: '#d97706' } },
+                    yW: { position: 'right', beginAtZero: true,  grid: { drawOnChartArea: false }, title: { display: true, text: 'W', color: '#10b981', font: { size: 11 } }, ticks: { color: '#10b981' } },
+                    x:  { grid: { display: false }, ticks: { maxTicksLimit: 8, font: { size: 10 } } }
+                },
+                plugins: {
+                    legend: { display: true, labels: { font: { size: 11 }, boxWidth: 12 } },
+                    tooltip: { callbacks: { label: c => c.dataset.label + ': ' + c.parsed.y.toFixed(c.datasetIndex === 0 ? 5 : 1) } }
+                }
+            }
+        });
+    }
+
+    function pushKwhPoint(kwh, puissance) {
+        if (!kwhRealtimeChart) return;
+        const now = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        kwhRealtimeChart.data.labels.push(now);
+        kwhRealtimeChart.data.datasets[0].data.push(parseFloat(kwh || 0));
+        kwhRealtimeChart.data.datasets[1].data.push(parseFloat(puissance || 0));
+        if (kwhRealtimeChart.data.labels.length > 60) {
+            kwhRealtimeChart.data.labels.shift();
+            kwhRealtimeChart.data.datasets[0].data.shift();
+            kwhRealtimeChart.data.datasets[1].data.shift();
+        }
+        kwhRealtimeChart.update('none');
+    }
+
+    // ── Daily bar chart ───────────────────────────────────
+    async function loadDailyEnergy() {
+        try { const r = await fetch('/api/energy/daily'); return await r.json(); } catch(e) { return []; }
+    }
+
+    async function initEnergyChart() {
+        const canvas = document.getElementById('energyChart');
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        const daily = await loadDailyEnergy();
+        updateTodayEnergy(daily);
+        energyChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: daily.length ? daily.map(d => new Date(d.date).toLocaleDateString('fr-FR', { weekday: 'short', day: '2-digit', month: '2-digit' })) : ['Aucune donnée'],
+                datasets: [{ label: 'Consommation (kWh)', data: daily.length ? daily.map(d => parseFloat(d.total_kwh || 0).toFixed(3)) : [0], backgroundColor: 'rgba(37,99,235,0.75)', borderColor: '#2563eb', borderWidth: 1, borderRadius: 6 }]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                scales: { y: { beginAtZero: true, grid: { color: '#f3f4f6' }, title: { display: true, text: 'kWh', color: '#6b7280' } }, x: { grid: { display: false } } },
+                plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => c.parsed.y + ' kWh' } } }
+            }
+        });
+    }
+
+    function updateTodayEnergy(daily) {
+        const el = document.getElementById('energy-today-value');
+        if (!el) return;
+        const todayStr = new Date().toISOString().slice(0, 10);
+        const row = daily.find(d => d.date === todayStr || (d.date && String(d.date).startsWith(todayStr)));
+        el.textContent = row ? parseFloat(row.total_kwh).toFixed(3) : '0.000';
+    }
+
+    async function refreshDailyChart() {
+        if (!energyChart) return;
+        const daily = await loadDailyEnergy();
+        energyChart.data.labels = daily.length ? daily.map(d => new Date(d.date).toLocaleDateString('fr-FR', { weekday: 'short', day: '2-digit', month: '2-digit' })) : ['Aucune donnée'];
+        energyChart.data.datasets[0].data = daily.length ? daily.map(d => parseFloat(d.total_kwh || 0).toFixed(3)) : [0];
+        energyChart.update();
+        updateTodayEnergy(daily);
+    }
+
+    // Called from polling (matchedEq.puissance path)
+    function updateEnergyChart(puissance) { updateLivePower(puissance); }
+
+    // Called from Socket.io telemetry event
+    function onEnergyTelemetry(d) {
+        if (d.puissance != null) updateLivePower(d.puissance);
+        if (d.energie_kwh != null) { updateSessionKwh(d.energie_kwh); pushKwhPoint(d.energie_kwh, d.puissance); }
+    }
+
+    // KPI updater — called from both Socket.io and polling
+    function updateKPIs(d) {
+        if (d.humidite != null)            setKpi('kpi-humidite',    parseFloat(d.humidite).toFixed(1),           '%',    60, 70);
+        if (d.pression_filtre != null)     setKpi('kpi-filtre',      parseFloat(d.pression_filtre).toFixed(0),    'Pa',  100, 150);
+        if (d.vitesse_ventilateur != null) setKpi('kpi-ventilateur', Math.round(d.vitesse_ventilateur),           'RPM', 1200, 1400);
+        if (d.delta_t != null)             setKpi('kpi-delta-t',     parseFloat(d.delta_t).toFixed(1),            '°C');
+        if (d.cop != null)                 setKpi('kpi-cop',         parseFloat(d.cop).toFixed(2),                'ratio');
+        if (d.tension != null)             setKpi('kpi-tension',     parseFloat(d.tension).toFixed(1),            'V');
+        if (d.courant != null)             setKpi('kpi-courant',     parseFloat(d.courant).toFixed(2),            'A');
+        if (d.tvoc != null)                setKpi('kpi-tvoc',        d.tvoc,                                      'ppb', 300, 500);
+        const sfpEl = document.getElementById('kpi-sfp-val');
+        if (sfpEl && d.sfp != null)        sfpEl.textContent = parseFloat(d.sfp).toFixed(3);
+    }
+
+    // Also feed KPIs from the 4s polling path
+    const _origUpdateValues = updateValuesFromStorage;
+    // Patch: after polling fetches matchedEq, call updateKPIs
+    // (done inline — see polling block in updateValuesFromStorage which already calls updateEnergyChart)
+
+    // Refresh daily chart every 5 min
+    setInterval(refreshDailyChart, 5 * 60 * 1000);
+
+    // Init both charts on page load
+    window.addEventListener('DOMContentLoaded', () => {
+        initKwhRealtimeChart();
+        // initEnergyChart is already called from initMachinePage()
+    });
+
+    // Auth guard
     (function authGuard() {
         if (localStorage.getItem('rg_logged') !== '1') {
             window.location.replace('login.html');

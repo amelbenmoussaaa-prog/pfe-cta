@@ -15,19 +15,20 @@ This project is a **CTA (Centrale de Traitement d'Air)** IoT supervision dashboa
 pfe-cta/
 ├── backend/
 │   ├── server.js          # Express server (API + MQTT + static serving)
-│   ├── mock_esp32.js       # ESP32 simulator for testing
 │   ├── .env                # Environment configuration
-│   └── package.json        # Node.js dependencies
+│   ├── package.json        # Node.js dependencies
+│   └── node_modules/       # Installed dependencies
 ├── public/
 │   ├── index.html          # Dashboard page
 │   ├── login.html          # Login page
 │   ├── machine.html        # Machine detail view
-│   ├── script.js           # Frontend JavaScript
+│   ├── chart.js            # Chart library
 │   ├── style.css           # Frontend styles
 │   ├── cta.png             # CTA schematic image
 │   └── rg.jpg              # Royal Garden logo
 ├── esp32/
-│   └── esp32_example.cpp   # Real ESP32 firmware code
+│   ├── esp32_example.cpp   # Real ESP32 firmware code
+│   └── CTA_Controller/     # Arduino libraries & config
 ├── README.md
 └── START_INSTRUCTIONS.txt
 ```

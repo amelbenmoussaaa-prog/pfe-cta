@@ -4,8 +4,17 @@ const path = require('path');
 const cors = require('cors');
 const mysql = require('mysql2/promise');
 const mqtt = require('mqtt');
+const http = require('http');
+const { Server } = require('socket.io');
 
 const app = express();
+const httpServer = http.createServer(app);
+const io = new Server(httpServer, {
+    cors: {
+        origin: "*",
+        methods: ["GET", "POST", "PUT", "DELETE"]
+    }
+});
 const PORT = process.env.PORT || 3001;
 
 // Middleware
@@ -39,7 +48,107 @@ async function initializeDatabase() {
             queueLimit: 0
         });
 
-        // 1. Users Table
+        // Drop old tables if they exist
+        await dbPool.query("DROP TABLE IF EXISTS alarms, alarms_history, thresholds, telemetry_history, actuators, sensors, devices, `groups` CASCADE");
+
+        // 1. CTA Table
+        await dbPool.query(`
+            CREATE TABLE IF NOT EXISTS cta (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                nom VARCHAR(50) NOT NULL
+            )
+        `);
+
+        // 2. Temperature Table
+        await dbPool.query(`
+            CREATE TABLE IF NOT EXISTS cta_temperature (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                cta_id INT,
+                reprise FLOAT,
+                soufflage FLOAT,
+                salle FLOAT,
+                chaud_aller FLOAT,
+                chaud_retour FLOAT,
+                froid_aller FLOAT,
+                froid_retour FLOAT,
+                vanne_ouverture INT DEFAULT 0,
+                humidite FLOAT,
+                pression_filtre FLOAT,
+                vitesse_ventilateur FLOAT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (cta_id) REFERENCES cta(id) ON DELETE CASCADE
+            )
+        `);
+        // Migrate existing tables that lack the new columns
+        await dbPool.query("ALTER TABLE cta_temperature ADD COLUMN IF NOT EXISTS humidite FLOAT").catch(() => {});
+        await dbPool.query("ALTER TABLE cta_temperature ADD COLUMN IF NOT EXISTS pression_filtre FLOAT").catch(() => {});
+        await dbPool.query("ALTER TABLE cta_temperature ADD COLUMN IF NOT EXISTS vitesse_ventilateur FLOAT").catch(() => {});
+
+        // 3. Energie Table
+        await dbPool.query(`
+            CREATE TABLE IF NOT EXISTS energie (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                cta_id INT,
+                tension FLOAT,
+                courant FLOAT,
+                puissance FLOAT,
+                energie_kwh FLOAT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (cta_id) REFERENCES cta(id) ON DELETE CASCADE
+            )
+        `);
+
+        // 4. Air Quality Table
+        await dbPool.query(`
+            CREATE TABLE IF NOT EXISTS air_quality (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                cta_id INT,
+                aqi INT,
+                tvoc INT,
+                eco2 INT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (cta_id) REFERENCES cta(id) ON DELETE CASCADE
+            )
+        `);
+
+        // 5. Alertes Table
+        await dbPool.query(`
+            CREATE TABLE IF NOT EXISTS alertes (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                cta_id INT,
+                type VARCHAR(50),
+                message TEXT,
+                valeur FLOAT,
+                niveau VARCHAR(20),
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (cta_id) REFERENCES cta(id) ON DELETE CASCADE
+            )
+        `);
+
+        // 6. Calendrier Table
+        await dbPool.query(`
+            CREATE TABLE IF NOT EXISTS calendrier (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                cta_id INT,
+                jour VARCHAR(10),
+                heure_on TIME,
+                heure_off TIME,
+                FOREIGN KEY (cta_id) REFERENCES cta(id) ON DELETE CASCADE
+            )
+        `);
+
+        // 7. Seuils Table
+        await dbPool.query(`
+            CREATE TABLE IF NOT EXISTS seuils (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                type VARCHAR(50),
+                nom VARCHAR(50),
+                min FLOAT,
+                max FLOAT
+            )
+        `);
+
+        // 8. Users Table (Keep existing)
         await dbPool.query(`
             CREATE TABLE IF NOT EXISTS users (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -50,86 +159,27 @@ async function initializeDatabase() {
             )
         `);
 
-        // Seed default users if none exist
-        const [users] = await dbPool.query("SELECT * FROM users");
-        if (users.length === 0) {
-            await dbPool.query(`INSERT INTO users (username, password, role) VALUES ('admin', 'admin123', 'admin')`);
-            await dbPool.query(`INSERT INTO users (username, password, role) VALUES ('visiteur', 'visit123', 'visiteur')`);
-            console.log('Seeded default users.');
+        // Seeding initial data
+        const [ctaRows] = await dbPool.query("SELECT * FROM cta LIMIT 1");
+        if (ctaRows.length === 0) {
+            console.log('🌱 Seeding initial CTA data...');
+            await dbPool.query("INSERT INTO cta (nom) VALUES ('CTA Centrale')");
+            
+            // Use INSERT IGNORE to avoid duplicate entry errors for the admin user
+            await dbPool.query("INSERT IGNORE INTO users (username, password, role) VALUES ('admin', 'admin123', 'admin')");
+            
+            // Seed default thresholds
+            await dbPool.query("INSERT IGNORE INTO seuils (type, nom, min, max) VALUES ('temp', 'salle', 18, 25)");
+            await dbPool.query("INSERT IGNORE INTO seuils (type, nom, min, max) VALUES ('air', 'eco2', 0, 1000)");
+            await dbPool.query("INSERT IGNORE INTO seuils (type, nom, min, max) VALUES ('humidite', 'humidite', 30, 70)");
+            await dbPool.query("INSERT IGNORE INTO seuils (type, nom, min, max) VALUES ('filtre', 'pression_filtre', 0, 150)");
+            
+            console.log('✅ Base seeding complete.');
         }
 
-        // 2. Equipments Table
-        await dbPool.query(`
-            CREATE TABLE IF NOT EXISTS equipments (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                name VARCHAR(100) NOT NULL,
-                location VARCHAR(100),
-                status ENUM('actif', 'inactif', 'maintenance') DEFAULT 'actif',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        `);
-
-        // Seed standard equipment 
-        const [equipments] = await dbPool.query("SELECT * FROM equipments");
-        if (equipments.length === 0) {
-             await dbPool.query(`INSERT INTO equipments (name, location) VALUES ('CTA Galerie Gauche', 'Galerie Gauche')`);
-             await dbPool.query(`INSERT INTO equipments (name, location, status) VALUES ('CTA Galerie Droite', 'Galerie Droite', 'inactif')`);
-             await dbPool.query(`INSERT INTO equipments (name, location) VALUES ('CTA Salle Polyvalente', 'Salle Polyvalente')`);
-             await dbPool.query(`INSERT INTO equipments (name, location) VALUES ('CTA Hall Réception', 'Hall Réception')`);
-        }
-
-        // 3. CTA Table (ported from api/cta.php)
-        await dbPool.query(`
-            CREATE TABLE IF NOT EXISTS cta (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                nom VARCHAR(100),
-                zone VARCHAR(100),
-                mode VARCHAR(50),
-                etat VARCHAR(50),
-                temperature FLOAT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        `);
-
-        // 4. Telemetry Table (Expanded with equipment_id)
-        await dbPool.query(`
-            CREATE TABLE IF NOT EXISTS telemetry (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                equipment_id INT NULL,
-                temperature FLOAT,
-                humidity FLOAT,
-                current FLOAT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (equipment_id) REFERENCES equipments(id) ON DELETE CASCADE
-            )
-        `);
-
-        // Migration step: Add equipment_id to legacy telemetry tables from v1
-        try {
-            const [cols] = await dbPool.query("SHOW COLUMNS FROM telemetry LIKE 'equipment_id'");
-            if (cols.length === 0) {
-                 await dbPool.query("ALTER TABLE telemetry ADD COLUMN equipment_id INT NULL AFTER id");
-                 console.log("Migrated telemetry table with equipment_id.");
-            }
-        } catch(e) {}
-
-        // 5. Commands Log Table
-        await dbPool.query(`
-            CREATE TABLE IF NOT EXISTS commands_log (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                user_id INT NULL,
-                equipment_id INT NULL,
-                command_type VARCHAR(50),
-                new_state BOOLEAN,
-                executed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-                FOREIGN KEY (equipment_id) REFERENCES equipments(id) ON DELETE CASCADE
-            )
-        `);
-
-        console.log('Database schema fully initialized (Users, Equipments, CTA, Telemetry, Logs).');
+        console.log('🚀 Database schema fully initialized with specialized CTA structure.');
     } catch (error) {
-        console.error('Error initializing database:', error);
+        console.error('❌ Error initializing database:', error);
     }
 }
 
@@ -146,28 +196,113 @@ const mqttClient = mqtt.connect(MQTT_BROKER, {
 
 mqttClient.on('connect', () => {
     console.log(`Connected to MQTT broker: ${MQTT_BROKER}`);
-    mqttClient.subscribe(MQTT_TOPIC_TELEMETRY, (err) => {
+    // Subscribe to all cta topics using wildcard
+    mqttClient.subscribe('cta/#', (err) => {
         if (!err) {
-            console.log(`Subscribed to topic: ${MQTT_TOPIC_TELEMETRY}`);
+            console.log(`Subscribed to topic: cta/# (Listening for all telemetry variants)`);
         }
     });
+    // Also support uppercase variants if needed
+    mqttClient.subscribe('CTA/#');
 });
 
 mqttClient.on('message', async (topic, payload) => {
-    if (topic === MQTT_TOPIC_TELEMETRY) {
+    const lowerTopic = topic.toLowerCase();
+    // Accept telemetry regardless of case or accents (telemetry or télémétrie)
+    if (lowerTopic.includes('tele') || lowerTopic.includes('télémé')) {
         try {
             const data = JSON.parse(payload.toString());
-            console.log('Received telemetry:', data);
+            console.log(`📥 MQTT Telemetry Received [${topic}]:`, data);
             
             if (dbPool) {
-                // By default linking mock data to CTA Galerie Gauche (ID 1)
-                await dbPool.query(
-                    'INSERT INTO telemetry (equipment_id, temperature, humidity, current) VALUES (?, ?, ?, ?)',
-                    [1, data.temperature || 0, data.humidity || 0, data.current || 0]
-                );
+                // 1. Get the main CTA (assume ID 1)
+                const [ctaRows] = await dbPool.query("SELECT id FROM cta LIMIT 1");
+                if (ctaRows.length === 0) return;
+                const ctaId = ctaRows[0].id;
+
+                // 2. Process Temperature Data
+                if (data.reprise !== undefined) {
+                    await dbPool.query(
+                        "INSERT INTO cta_temperature (cta_id, reprise, soufflage, salle, chaud_aller, chaud_retour, froid_aller, froid_retour, vanne_ouverture) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        [ctaId, data.reprise, data.soufflage, data.salle, data.chaud_aller, data.chaud_retour, data.froid_aller, data.froid_retour, data.vanne_ouverture || 0]
+                    );
+                }
+
+                // 3. Process Energy Data
+                if (data.tension !== undefined) {
+                    await dbPool.query(
+                        "INSERT INTO energie (cta_id, tension, courant, puissance, energie_kwh) VALUES (?, ?, ?, ?, ?)",
+                        [ctaId, data.tension, data.courant, data.puissance, data.energie_kwh]
+                    );
+                }
+
+                // 4. Process Air Quality Data
+                if (data.aqi !== undefined || data.eco2 !== undefined) {
+                    await dbPool.query(
+                        "INSERT INTO air_quality (cta_id, aqi, tvoc, eco2) VALUES (?, ?, ?, ?)",
+                        [ctaId, data.aqi, data.tvoc, data.eco2]
+                    );
+                }
+
+                // 5. Check Thresholds and Create Alerts (Anti-Spam)
+                if (!global.activeAlarms) global.activeAlarms = {};
+                
+                const [seuils] = await dbPool.query("SELECT * FROM seuils");
+                for (const seuil of seuils) {
+                    const val = data[seuil.nom];
+                    if (val !== undefined) {
+                        let isBreached = false;
+                        if (seuil.max !== null && val > seuil.max) isBreached = true;
+                        if (seuil.min !== null && val < seuil.min) isBreached = true;
+
+                        const alarmKey = `cta_${ctaId}_${seuil.nom}`;
+
+                        if (isBreached) {
+                            if (!global.activeAlarms[alarmKey]) {
+                                global.activeAlarms[alarmKey] = true;
+                                console.log(`[ALARM] 🚨 TRIGGERED: ${seuil.nom} = ${val} (Max: ${seuil.max})`);
+                                
+                                await dbPool.query(
+                                    "INSERT INTO alertes (cta_id, type, message, valeur, niveau) VALUES (?, ?, ?, ?, ?)",
+                                    [ctaId, seuil.type, `Alerte Seuil: ${seuil.nom} est à ${val}`, val, 'danger']
+                                );
+                                
+                                io.emit('alarm', {
+                                    ctaId,
+                                    type: seuil.type,
+                                    message: `Alerte Seuil: ${seuil.nom} est à ${val}`,
+                                    severity: 'danger',
+                                    value: val,
+                                    created_at: new Date()
+                                });
+                            }
+                        } else {
+                            // Hysteresis: Only reset if the value is SAFELY back in the normal zone
+                            const hyst = 0.5;
+                            const thresholdMax = parseFloat(seuil.max);
+                            const thresholdMin = parseFloat(seuil.min);
+                            
+                            let dangerous = false;
+                            if (!isNaN(thresholdMax) && val > (thresholdMax - hyst)) dangerous = true;
+                            if (!isNaN(thresholdMin) && val < (thresholdMin + hyst)) dangerous = true;
+                            
+                            if (!dangerous && global.activeAlarms[alarmKey]) {
+                                console.log(`[ALARM] ✅ RESET: ${seuil.nom} is now safe at ${val} (Safely away from ${thresholdMin}-${thresholdMax})`);
+                                global.activeAlarms[alarmKey] = false;
+                            }
+                        }
+                    }
+                }
+
+                // 6. Broadcast live data via Socket.io
+                io.emit('telemetry', {
+                    ctaId,
+                    data,
+                    timestamp: new Date()
+                });
             }
         } catch (error) {
-            console.error('Failed to parse or save MQTT message:', error);
+            console.error('Failed to process MQTT message:', error);
         }
     }
 });
@@ -226,255 +361,239 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
-// ─── CTA CRUD Routes (ported from api/cta.php) ───────────
+// ─── IoT Structure Routes ──────────────────────────
 
-// GET all CTAs or single CTA by id
-app.get('/api/cta', async (req, res) => {
+// GET all CTA (as groups for compatibility)
+app.get('/api/groups', async (req, res) => {
     try {
-        if (!dbPool) return res.status(500).json({ error: 'Database not initialized' });
-        const [rows] = await dbPool.query('SELECT * FROM cta ORDER BY id ASC');
+        if (!dbPool) return res.status(500).json({ error: 'DB not initialized' });
+        const [rows] = await dbPool.query('SELECT id, nom as name FROM cta');
         res.json(rows);
-    } catch (error) {
-        console.error('CTA query error:', error);
-        res.status(500).json({ error: error.message });
+    } catch(err) {
+        res.status(500).json({ error: err.message });
     }
 });
 
-app.get('/api/cta/:id', async (req, res) => {
+// GET CTA by ID (as device for compatibility)
+app.get('/api/groups/:id/devices', async (req, res) => {
     try {
-        if (!dbPool) return res.status(500).json({ error: 'Database not initialized' });
-        const [rows] = await dbPool.query('SELECT * FROM cta WHERE id = ?', [req.params.id]);
-        if (rows.length === 0) {
-            return res.status(404).json({ error: 'CTA not found' });
-        }
-        res.json(rows[0]);
-    } catch (error) {
-        console.error('CTA query error:', error);
-        res.status(500).json({ error: error.message });
+        if (!dbPool) return res.status(500).json({ error: 'DB not initialized' });
+        const [rows] = await dbPool.query('SELECT id, nom as label FROM cta WHERE id = ?', [req.params.id]);
+        res.json(rows);
+    } catch(err) {
+        res.status(500).json({ error: err.message });
     }
 });
 
-// POST create a new CTA
-app.post('/api/cta', async (req, res) => {
+// GET latest telemetry for a CTA
+app.get('/api/devices/:id/telemetry', async (req, res) => {
     try {
-        if (!dbPool) return res.status(500).json({ error: 'Database not initialized' });
-        const allowedFields = ['nom', 'zone', 'mode', 'etat', 'temperature'];
-        const fields = {};
-        for (const field of allowedFields) {
-            if (req.body[field] !== undefined && req.body[field] !== null) {
-                fields[field] = req.body[field];
-            }
-        }
-        if (Object.keys(fields).length === 0) {
-            return res.status(400).json({ error: 'No fields provided' });
-        }
-        const columns = Object.keys(fields);
-        const placeholders = columns.map(() => '?').join(', ');
-        const values = columns.map(c => fields[c]);
-        const [result] = await dbPool.query(
-            `INSERT INTO cta (${columns.join(', ')}) VALUES (${placeholders})`,
-            values
-        );
-        res.status(201).json({ success: true, id: result.insertId });
-    } catch (error) {
-        console.error('CTA create error:', error);
-        res.status(500).json({ error: error.message });
+        if (!dbPool) return res.status(500).json({ error: 'DB not initialized' });
+        
+        const [temps] = await dbPool.query('SELECT * FROM cta_temperature WHERE cta_id = ? ORDER BY timestamp DESC LIMIT 1', [req.params.id]);
+        const [energy] = await dbPool.query('SELECT * FROM energie WHERE cta_id = ? ORDER BY timestamp DESC LIMIT 1', [req.params.id]);
+        const [air] = await dbPool.query('SELECT * FROM air_quality WHERE cta_id = ? ORDER BY timestamp DESC LIMIT 1', [req.params.id]);
+        
+        // Merge into a format the frontend expects (or a new unified format)
+        res.json({
+            temperature: temps[0] || {},
+            energy: energy[0] || {},
+            air_quality: air[0] || {}
+        });
+    } catch(err) {
+        res.status(500).json({ error: err.message });
     }
 });
 
-// PUT update a CTA
-app.put('/api/cta/:id', async (req, res) => {
-    try {
-        if (!dbPool) return res.status(500).json({ error: 'Database not initialized' });
-        const allowedFields = ['nom', 'zone', 'mode', 'etat', 'temperature'];
-        const fields = {};
-        for (const field of allowedFields) {
-            if (req.body[field] !== undefined && req.body[field] !== null) {
-                fields[field] = req.body[field];
-            }
-        }
-        if (Object.keys(fields).length === 0) {
-            return res.status(400).json({ error: 'No fields provided' });
-        }
-        const setParts = Object.keys(fields).map(k => `${k} = ?`).join(', ');
-        const values = [...Object.values(fields), req.params.id];
-        await dbPool.query(`UPDATE cta SET ${setParts} WHERE id = ?`, values);
-        res.json({ success: true });
-    } catch (error) {
-        console.error('CTA update error:', error);
-        res.status(500).json({ error: error.message });
-    }
-});
+// ─── Alarms Routes ───────────────────────────
 
-// DELETE a CTA
-app.delete('/api/cta/:id', async (req, res) => {
+// GET temperature history for a CTA
+app.get('/api/history/temperatures', async (req, res) => {
     try {
-        if (!dbPool) return res.status(500).json({ error: 'Database not initialized' });
-        await dbPool.query('DELETE FROM cta WHERE id = ?', [req.params.id]);
-        res.json({ success: true });
-    } catch (error) {
-        console.error('CTA delete error:', error);
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// ─── Sensor Data Routes (ported from api/sensor_data.php) ──
-
-// GET latest sensor data per equipment
-app.get('/api/sensor-data', async (req, res) => {
-    try {
-        if (!dbPool) return res.status(500).json({ error: 'Database not initialized' });
+        if (!dbPool) return res.status(500).json({ error: 'DB not initialized' });
+        const limit = parseInt(req.query.limit) || 30;
         const [rows] = await dbPool.query(`
-            SELECT t.equipment_id as capteur_id, t.temperature as valeur, t.created_at as date_mesure
-            FROM telemetry t
-            WHERE t.id IN (
-                SELECT MAX(id) FROM telemetry GROUP BY equipment_id
-            )
-            ORDER BY t.equipment_id ASC
+            SELECT * FROM cta_temperature 
+            ORDER BY timestamp DESC 
+            LIMIT ?
+        `, [limit]);
+        res.json(rows);
+    } catch(err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET active alerts
+app.get('/api/alarms/active', async (req, res) => {
+    try {
+        if (!dbPool) return res.status(500).json({ error: 'DB not initialized' });
+        const [rows] = await dbPool.query(`
+            SELECT a.*, c.nom as cta_label
+            FROM alertes a
+            JOIN cta c ON a.cta_id = c.id
+            ORDER BY a.timestamp DESC
+            LIMIT 50
         `);
         res.json(rows);
-    } catch (error) {
-        console.error('Sensor data query error:', error);
-        res.status(500).json({ error: error.message });
+    } catch(err) {
+        res.status(500).json({ error: err.message });
     }
 });
 
-// POST insert sensor data
-app.post('/api/sensor-data', async (req, res) => {
+// Resolve an alert (mock for now as there's no is_resolved in the new SQL)
+app.put('/api/alarms/:id/resolve', async (req, res) => {
     try {
-        if (!dbPool) return res.status(500).json({ error: 'Database not initialized' });
-        const capteurId = req.body.capteur_id != null ? parseInt(req.body.capteur_id) : null;
-        const valeur = req.body.valeur != null ? parseFloat(req.body.valeur) : null;
-        const dateMesure = req.body.date_mesure || new Date().toISOString().slice(0, 19).replace('T', ' ');
+        res.json({ success: true, message: "Alert acknowledged" });
+    } catch(err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 
-        if (capteurId === null || valeur === null) {
-            return res.status(400).json({ error: 'capteur_id and valeur are required' });
-        }
+// DELETE all alerts
+app.delete('/api/alarms/all', async (req, res) => {
+    try {
+        if (!dbPool) return res.status(500).json({ error: 'DB not initialized' });
+        await dbPool.query("DELETE FROM alertes");
+        
+        // Reset anti-spam so it can re-trigger if conditions are still bad
+        global.activeAlarms = {};
+        console.log('🗑️ Alerts cleared and anti-spam reset.');
+        
+        res.json({ success: true, message: "All alerts cleared" });
+    } catch(err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 
-        const [result] = await dbPool.query(
-            'INSERT INTO telemetry (equipment_id, temperature, created_at) VALUES (?, ?, ?)',
-            [capteurId, valeur, dateMesure]
+// --- NEW: History & Latest Telemetry Routes ---
+app.get('/api/history/energy', async (req, res) => {
+    try {
+        if (!dbPool) return res.status(500).json({ error: 'DB not initialized' });
+        const [rows] = await dbPool.query(
+            "SELECT puissance as value, timestamp as label FROM energie ORDER BY timestamp DESC LIMIT 20"
         );
-        res.status(201).json({ success: true, insert_id: result.insertId });
-    } catch (error) {
-        console.error('Sensor data insert error:', error);
-        res.status(500).json({ error: error.message });
+        res.json(rows.reverse()); // Chronological order
+    } catch (err) {
+        res.status(500).json({ error: err.message });
     }
 });
 
-// ─── Telemetry & History Routes ──────────────────────────
-
-// Get telemetry data
-app.get('/api/telemetry', async (req, res) => {
+app.get('/api/energy/daily', async (req, res) => {
     try {
-        if (!dbPool) return res.status(500).json({ error: 'Database not initialized' });
-        
+        if (!dbPool) return res.status(500).json({ error: 'DB not initialized' });
         const [rows] = await dbPool.query(`
-            SELECT t.*, e.name as equipment_name 
-            FROM telemetry t 
-            LEFT JOIN equipments e ON t.equipment_id = e.id 
-            ORDER BY t.created_at DESC LIMIT 100
+            SELECT DATE(timestamp) as date, SUM(energie_kwh) as total_kwh
+            FROM energie
+            GROUP BY DATE(timestamp)
+            ORDER BY date DESC
+            LIMIT 7
         `);
-        
-        res.json(rows);
-    } catch (error) {
-        console.error('Telemetry query error:', error);
-        res.status(500).json({ error: 'Erreur interne du serveur' });
-    }
-});
-
-// Get historical data
-app.get('/api/history', async (req, res) => {
-    try {
-        if (!dbPool) return res.status(500).json({ error: 'Database not initialized' });
-        const [rows] = await dbPool.query('SELECT * FROM telemetry ORDER BY id DESC LIMIT 50');
         res.json(rows.reverse());
-    } catch (error) {
-        console.error('Database query error:', error);
-        res.status(500).json({ error: 'Internal server error' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
     }
 });
 
-// ─── Commands & Equipment Routes ─────────────────────────
-
-// Publish command route
-app.post('/api/commands', async (req, res) => {
-    const { command, device, state, userId, equipmentId } = req.body;
-    
-    // Log the command to the database securely
-    if (dbPool && userId && equipmentId) {
-        try {
-            await dbPool.query(
-                `INSERT INTO commands_log (user_id, equipment_id, command_type, new_state) VALUES (?, ?, ?, ?)`,
-                [userId, equipmentId, device, state ? 1 : 0]
-            );
-        } catch(e) {
-            console.error("Failed to log command", e);
-        }
-    }
-
-    // Publish directly via MQTT
-    mqttClient.publish(MQTT_TOPIC_COMMANDS, JSON.stringify({ [device]: state }), (err) => {
-        if (err) {
-            return res.status(500).json({ error: 'Failed to send command' });
-        }
-        res.json({ success: true, message: 'Command published and logged' });
-    });
-});
-
-// Get all equipment status
-app.get('/api/equipments', async (req, res) => {
+app.get('/api/energy/realtime', async (req, res) => {
     try {
         if (!dbPool) return res.status(500).json({ error: 'DB not initialized' });
-        const [rows] = await dbPool.query('SELECT name, location, status FROM equipments');
-        res.json(rows);
-    } catch(err) {
-        console.error('Get equipments error:', err);
-        res.status(500).json({ error: 'Server error' });
+        const limit = parseInt(req.query.limit) || 60;
+        const [rows] = await dbPool.query(
+            "SELECT energie_kwh, puissance, tension, courant, timestamp FROM energie ORDER BY timestamp DESC LIMIT ?",
+            [limit]
+        );
+        res.json(rows.reverse());
+    } catch (err) {
+        res.status(500).json({ error: err.message });
     }
 });
 
-// Sync equipment status
-app.put('/api/equipments/status', async (req, res) => {
-    const { ctaSlug, status } = req.body;
-    
-    const slugMap = {
-        'galerie-gauche': 'CTA Galerie Gauche',
-        'galerie-droite': 'CTA Galerie Droite',
-        'salle-polyvalente': 'CTA Salle Polyvalente',
-        'hall-reception': 'CTA Hall Réception'
-    };
-    const name = slugMap[ctaSlug];
-    if (!name || !status) return res.status(400).json({ error: 'Bad request' });
-
-    try {
-        if (!dbPool) return res.status(500).json({ error: 'DB not initialized' });
-        const realStatus = status.toLowerCase() === 'actif' ? 'actif' : 'inactif';
-        await dbPool.query('UPDATE equipments SET status = ? WHERE name = ?', [realStatus, name]);
-        res.json({ success: true, message: 'Status updated' });
-    } catch(err) {
-        console.error('Update status error:', err);
-        res.status(500).json({ error: 'Server error' });
-    }
-});
-
-// Get latest telemetry per equipment (for dashboard & machine page sync)
 app.get('/api/telemetry/latest', async (req, res) => {
     try {
         if (!dbPool) return res.status(500).json({ error: 'DB not initialized' });
-        const [rows] = await dbPool.query(`
-            SELECT e.id as equipment_id, e.name, e.location, e.status,
-                   t.temperature, t.humidity, t.current, t.created_at
-            FROM equipments e
-            LEFT JOIN telemetry t ON t.id = (
-                SELECT MAX(t2.id) FROM telemetry t2 WHERE t2.equipment_id = e.id
-            )
-            ORDER BY e.id ASC
-        `);
-        res.json(rows);
+        const [ctas] = await dbPool.query("SELECT * FROM cta");
+        const results = [];
+        
+        for (const cta of ctas) {
+            const [t] = await dbPool.query("SELECT * FROM cta_temperature WHERE cta_id = ? ORDER BY id DESC LIMIT 1", [cta.id]);
+            const [e] = await dbPool.query("SELECT * FROM energie WHERE cta_id = ? ORDER BY id DESC LIMIT 1", [cta.id]);
+            const [a] = await dbPool.query("SELECT * FROM air_quality WHERE cta_id = ? ORDER BY id DESC LIMIT 1", [cta.id]);
+            
+            // KPI: Delta-T soufflage vs reprise (°C)
+            const deltaT = (t[0] && t[0].soufflage != null && t[0].reprise != null)
+                ? parseFloat((t[0].soufflage - t[0].reprise).toFixed(1)) : null;
+
+            // KPI: COP estimate — thermal power / electrical power (approx flow 0.5 kg/s, Cp air = 1.005 kJ/kg·K)
+            const thermalKW = (deltaT !== null) ? Math.abs(deltaT) * 0.5 * 1.005 : null;
+            const cop = (thermalKW && e[0] && e[0].puissance > 50)
+                ? parseFloat((thermalKW * 1000 / e[0].puissance).toFixed(2)) : null;
+
+            // KPI: SFP — Specific Fan Power (W per m³/h), fan ~30% of load, nominal flow 3600 m³/h
+            const sfp = (e[0] && e[0].puissance > 0)
+                ? parseFloat((e[0].puissance * 0.3 / 3600).toFixed(3)) : null;
+
+            results.push({
+                name: cta.nom,
+                status: 'actif',
+                temperature: t[0] ? t[0].salle : null,
+                reprise: t[0] ? t[0].reprise : null,
+                soufflage: t[0] ? t[0].soufflage : null,
+                chaud_aller: t[0] ? t[0].chaud_aller : null,
+                chaud_retour: t[0] ? t[0].chaud_retour : null,
+                froid_aller: t[0] ? t[0].froid_aller : null,
+                froid_retour: t[0] ? t[0].froid_retour : null,
+                vanne_ouverture: t[0] ? t[0].vanne_ouverture : 0,
+                humidite: t[0] ? t[0].humidite : null,
+                pression_filtre: t[0] ? t[0].pression_filtre : null,
+                vitesse_ventilateur: t[0] ? t[0].vitesse_ventilateur : null,
+                eco2: a[0] ? a[0].eco2 : null,
+                aqi: a[0] ? a[0].aqi : null,
+                tvoc: a[0] ? a[0].tvoc : null,
+                puissance: e[0] ? e[0].puissance : null,
+                energie_kwh: e[0] ? e[0].energie_kwh : null,
+                tension: e[0] ? e[0].tension : null,
+                courant: e[0] ? e[0].courant : null,
+                delta_t: deltaT,
+                cop: cop,
+                sfp: sfp,
+                last_seen: t[0] ? t[0].timestamp : null
+            });
+        }
+        res.json(results);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ─── Commands Route ──────────────────────────
+
+app.post('/api/commands', async (req, res) => {
+    const { deviceId, actuatorType, value } = req.body;
+    
+    if (!deviceId || !actuatorType) {
+        return res.status(400).json({ error: 'Missing deviceId or actuatorType' });
+    }
+
+    try {
+        // ✅ Correction du TOPIC pour correspondre à l'ESP32 : cta/ID/commands
+        const topic = `cta/${deviceId}/commands`;
+        
+        // ✅ Correction du FORMAT pour correspondre à l'ESP32 : { "actuatorType": "...", "value": ... }
+        const payload = JSON.stringify({ 
+            actuatorType: actuatorType, 
+            value: value 
+        });
+
+        mqttClient.publish(topic, payload, (err) => {
+            if (err) {
+                console.error('[MQTT] Publish Error:', err);
+                return res.status(500).json({ error: 'MQTT Publish failed' });
+            }
+            console.log(`[MQTT] Command Sent → ${topic}: ${payload}`);
+            res.json({ success: true, message: `Command sent to ${topic}` });
+        });
     } catch(err) {
-        console.error('Latest telemetry error:', err);
-        res.status(500).json({ error: 'Server error' });
+        res.status(500).json({ error: err.message });
     }
 });
 
@@ -488,8 +607,7 @@ app.get('/{*path}', (req, res) => {
 });
 
 // Start Express Server
-app.listen(PORT, async () => {
-    console.log(`CTA Node.js Backend is running on port ${PORT}`);
-    console.log(`Frontend served at: http://localhost:${PORT}`);
+httpServer.listen(PORT, async () => {
+    console.log(`🚀 CTA Backend & WebSocket Server running on port ${PORT}`);
     await initializeDatabase();
 });
