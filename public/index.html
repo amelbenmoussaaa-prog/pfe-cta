@@ -542,14 +542,13 @@ async function loadCtaList() {
         }
 
         const slugMap = {
-            'CTA Galerie Gauche': 'galerie-gauche',
-            'CTA Galerie Droite': 'galerie-droite',
+        
             'CTA Salle Polyvalente': 'salle-polyvalente',
-            'CTA Hall Réception': 'hall-reception'
+           
         };
 
         container.innerHTML = ctas.map(cta => {
-            const slug = slugMap[cta.name] || 'galerie-gauche';
+            const slug = slugMap[cta.name] || 'salle-polyvalente';
             const etatColor = cta.status === 'actif' ? 'var(--success)' : 'var(--danger)';
             const temp = cta.temperature ? parseFloat(cta.temperature).toFixed(1) + '°C' : '--°C';
             
@@ -635,10 +634,7 @@ function doLogout() {
             const equipments = await response.json();
 
             const slugMap = {
-                'CTA Galerie Gauche': 'galerie-gauche',
-                'CTA Galerie Droite': 'galerie-droite',
                 'CTA Salle Polyvalente': 'salle-polyvalente',
-                'CTA Hall Réception': 'hall-reception'
             };
 
             equipments.forEach(eq => {
