@@ -137,6 +137,23 @@ async function initializeDatabase() {
             )
         `);
 
+        // 6b. Schedules Table (auto planning with mode + consigne)
+        await dbPool.query(`
+            CREATE TABLE IF NOT EXISTS schedules (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                cta_id INT NOT NULL,
+                name VARCHAR(100) NOT NULL,
+                days VARCHAR(30) DEFAULT 'lun,mar,mer,jeu,ven,sam,dim',
+                heure_on TIME NOT NULL,
+                heure_off TIME NOT NULL,
+                mode VARCHAR(20) DEFAULT 'Chauffage',
+                consigne FLOAT DEFAULT 22,
+                enabled TINYINT(1) DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (cta_id) REFERENCES cta(id) ON DELETE CASCADE
+            )
+        `);
+
         // 7. Seuils Table
         await dbPool.query(`
             CREATE TABLE IF NOT EXISTS seuils (
@@ -597,6 +614,101 @@ app.post('/api/commands', async (req, res) => {
     }
 });
 
+// ═══════════════════════════════════════════════════════════
+// Schedule (Planification) Routes
+// ═══════════════════════════════════════════════════════════
+
+// GET all schedules, optionally filtered by ?cta_id=N
+app.get('/api/schedules', async (req, res) => {
+    try {
+        if (!dbPool) return res.status(500).json({ error: 'DB not initialized' });
+        const ctaId = req.query.cta_id;
+        const [rows] = ctaId
+            ? await dbPool.query('SELECT * FROM schedules WHERE cta_id = ? ORDER BY heure_on', [ctaId])
+            : await dbPool.query('SELECT * FROM schedules ORDER BY heure_on');
+        const result = rows.map(s => ({ ...s, isActive: !!(global.activeSchedules?.[s.id]) }));
+        res.json(result);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST create a schedule
+app.post('/api/schedules', async (req, res) => {
+    const { cta_id, name, days, heure_on, heure_off, mode, consigne } = req.body;
+    if (!cta_id || !name || !heure_on || !heure_off) {
+        return res.status(400).json({ error: 'cta_id, name, heure_on, heure_off are required' });
+    }
+    try {
+        if (!dbPool) return res.status(500).json({ error: 'DB not initialized' });
+        const [result] = await dbPool.query(
+            'INSERT INTO schedules (cta_id, name, days, heure_on, heure_off, mode, consigne) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [cta_id, name, days || 'lun,mar,mer,jeu,ven,sam,dim', heure_on, heure_off, mode || 'Chauffage', consigne || 22]
+        );
+        res.json({ success: true, id: result.insertId });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// PUT update a schedule (also handles enable/disable toggle)
+app.put('/api/schedules/:id', async (req, res) => {
+    const sid = parseInt(req.params.id);
+    const { name, days, heure_on, heure_off, mode, consigne, enabled } = req.body;
+    try {
+        if (!dbPool) return res.status(500).json({ error: 'DB not initialized' });
+        await dbPool.query(
+            `UPDATE schedules SET
+                name = COALESCE(?, name),
+                days = COALESCE(?, days),
+                heure_on = COALESCE(?, heure_on),
+                heure_off = COALESCE(?, heure_off),
+                mode = COALESCE(?, mode),
+                consigne = COALESCE(?, consigne),
+                enabled = COALESCE(?, enabled)
+            WHERE id = ?`,
+            [name ?? null, days ?? null, heure_on ?? null, heure_off ?? null,
+             mode ?? null, consigne ?? null, enabled !== undefined ? (enabled ? 1 : 0) : null, sid]
+        );
+        // If disabled and was active, end the schedule
+        if ((enabled === false || enabled === 0) && global.activeSchedules?.[sid]) {
+            global.activeSchedules[sid] = false;
+            const [rows] = await dbPool.query('SELECT * FROM schedules WHERE id = ?', [sid]);
+            if (rows.length > 0) {
+                mqttClient.publish(`cta/${rows[0].cta_id}/commands`, JSON.stringify({
+                    actuatorType: 'schedule_end', value: { scheduleId: sid }
+                }));
+                io.emit('schedule_deactivated', { scheduleId: sid, name: rows[0].name, ctaId: rows[0].cta_id });
+            }
+        }
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// DELETE a schedule
+app.delete('/api/schedules/:id', async (req, res) => {
+    const sid = parseInt(req.params.id);
+    try {
+        if (!dbPool) return res.status(500).json({ error: 'DB not initialized' });
+        if (global.activeSchedules?.[sid]) {
+            const [rows] = await dbPool.query('SELECT * FROM schedules WHERE id = ?', [sid]);
+            if (rows.length > 0) {
+                global.activeSchedules[sid] = false;
+                mqttClient.publish(`cta/${rows[0].cta_id}/commands`, JSON.stringify({
+                    actuatorType: 'schedule_end', value: { scheduleId: sid }
+                }));
+                io.emit('schedule_deactivated', { scheduleId: sid, name: rows[0].name, ctaId: rows[0].cta_id });
+            }
+        }
+        await dbPool.query('DELETE FROM schedules WHERE id = ?', [sid]);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // ─── SPA Fallback: serve index.html for unmatched routes ──
 // Express 5 requires named wildcard parameters
 app.get('/{*path}', (req, res) => {
@@ -606,8 +718,60 @@ app.get('/{*path}', (req, res) => {
     }
 });
 
+// ─── Scheduler: checks active schedules every minute ─────
+function startScheduler() {
+    if (!global.activeSchedules) global.activeSchedules = {};
+    const DAY_FR = ['dim', 'lun', 'mar', 'mer', 'jeu', 'ven', 'sam'];
+
+    async function checkSchedules() {
+        if (!dbPool) return;
+        const now = new Date();
+        const today = DAY_FR[now.getDay()];
+        const currentTime = String(now.getHours()).padStart(2, '0') + ':' +
+                            String(now.getMinutes()).padStart(2, '0') + ':00';
+        try {
+            const [schedules] = await dbPool.query('SELECT * FROM schedules WHERE enabled = 1');
+            for (const s of schedules) {
+                const days = s.days ? s.days.split(',') : [];
+                const inTime = days.includes(today) && currentTime >= s.heure_on && currentTime < s.heure_off;
+                const wasActive = !!global.activeSchedules[s.id];
+
+                if (inTime && !wasActive) {
+                    global.activeSchedules[s.id] = true;
+                    mqttClient.publish(`cta/${s.cta_id}/commands`, JSON.stringify({
+                        actuatorType: 'schedule_start',
+                        value: { mode: s.mode, consigne: s.consigne, scheduleId: s.id, name: s.name }
+                    }));
+                    console.log(`[SCHEDULER] ▶ "${s.name}" started → mode=${s.mode} consigne=${s.consigne}`);
+                    io.emit('schedule_activated', {
+                        scheduleId: s.id, name: s.name, ctaId: s.cta_id,
+                        mode: s.mode, consigne: s.consigne,
+                        heure_off: s.heure_off
+                    });
+                } else if (!inTime && wasActive) {
+                    global.activeSchedules[s.id] = false;
+                    mqttClient.publish(`cta/${s.cta_id}/commands`, JSON.stringify({
+                        actuatorType: 'schedule_end', value: { scheduleId: s.id }
+                    }));
+                    console.log(`[SCHEDULER] ⏹ "${s.name}" ended → returning to manual`);
+                    io.emit('schedule_deactivated', {
+                        scheduleId: s.id, name: s.name, ctaId: s.cta_id
+                    });
+                }
+            }
+        } catch (err) {
+            console.error('[SCHEDULER] Error:', err.message);
+        }
+    }
+
+    checkSchedules();
+    setInterval(checkSchedules, 60000);
+    console.log('⏰ Schedule checker started (every 60s)');
+}
+
 // Start Express Server
 httpServer.listen(PORT, async () => {
     console.log(`🚀 CTA Backend & WebSocket Server running on port ${PORT}`);
     await initializeDatabase();
+    startScheduler();
 });

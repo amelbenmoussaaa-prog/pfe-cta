@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Vue Machine CTA</title>
     <link rel="stylesheet" href="style.css">
-    <script src="chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
     <script src="/socket.io/socket.io.js"></script>
     <style>
         :root {
@@ -533,6 +533,44 @@
     </style>
     <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
     <script src="/socket.io/socket.io.js"></script>
+    <style>
+        /* ── Schedule Modal ─────────────────────────────────── */
+        #schedule-modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:10001; align-items:center; justify-content:center; }
+        #schedule-modal.open { display:flex; }
+        .sched-modal-box { background:white; border-radius:16px; padding:0; width:min(680px,96vw); max-height:88vh; overflow-y:auto; box-shadow:0 24px 64px rgba(0,0,0,0.22); display:flex; flex-direction:column; }
+        .sched-modal-header { padding:1.25rem 1.5rem; border-bottom:1px solid #e5e7eb; display:flex; justify-content:space-between; align-items:center; position:sticky; top:0; background:white; z-index:1; }
+        .sched-modal-header h2 { margin:0; font-size:1.1rem; }
+        .sched-modal-body { padding:1.5rem; flex:1; }
+        .sched-section-title { font-size:0.7rem; text-transform:uppercase; letter-spacing:.06em; color:#6b7280; font-weight:600; margin:0 0 0.75rem; }
+        .sched-list { display:flex; flex-direction:column; gap:0.65rem; margin-bottom:1.5rem; min-height:32px; }
+        .sched-item { display:flex; align-items:center; gap:0.75rem; padding:0.8rem 1rem; border:1px solid #e5e7eb; border-radius:10px; font-size:0.85rem; transition:border-color 0.2s; }
+        .sched-item.active-now { border-color:#10b981; background:#f0fdf4; }
+        .sched-item-info { flex:1; }
+        .sched-item-name { font-weight:600; color:#1f2937; margin-bottom:2px; }
+        .sched-item-meta { font-size:0.75rem; color:#6b7280; }
+        .sched-item-badge { font-size:0.65rem; font-weight:700; padding:2px 8px; border-radius:99px; }
+        .sched-badge-auto { background:#dcfce7; color:#15803d; }
+        .sched-badge-manual { background:#f1f5f9; color:#64748b; }
+        .sched-toggle { position:relative; width:40px; height:22px; flex-shrink:0; }
+        .sched-toggle input { opacity:0; width:0; height:0; }
+        .sched-toggle-slider { position:absolute; inset:0; background:#d1d5db; border-radius:22px; cursor:pointer; transition:.3s; }
+        .sched-toggle input:checked + .sched-toggle-slider { background:#10b981; }
+        .sched-toggle-slider::before { content:''; position:absolute; height:16px; width:16px; left:3px; bottom:3px; background:white; border-radius:50%; transition:.3s; }
+        .sched-toggle input:checked + .sched-toggle-slider::before { transform:translateX(18px); }
+        .sched-form { background:#f8fafc; border:1px solid #e5e7eb; border-radius:12px; padding:1.25rem; }
+        .sched-form-row { display:grid; grid-template-columns:1fr 1fr; gap:0.75rem; margin-bottom:0.75rem; }
+        .sched-form-row.full { grid-template-columns:1fr; }
+        .sched-form label { font-size:0.75rem; font-weight:600; color:#374151; display:block; margin-bottom:0.3rem; }
+        .sched-form input, .sched-form select { width:100%; padding:0.5rem 0.65rem; border:1px solid #d1d5db; border-radius:6px; font-size:0.85rem; font-family:inherit; box-sizing:border-box; transition:border-color .2s; }
+        .sched-form input:focus, .sched-form select:focus { outline:none; border-color:#2563eb; }
+        .sched-days { display:flex; gap:0.4rem; flex-wrap:wrap; }
+        .sched-day-btn { padding:0.3rem 0.55rem; border:1px solid #d1d5db; border-radius:6px; font-size:0.75rem; cursor:pointer; background:white; transition:all .2s; }
+        .sched-day-btn.selected { background:#2563eb; color:white; border-color:#2563eb; }
+        .sched-submit { width:100%; padding:0.7rem; background:#2563eb; color:white; border:none; border-radius:8px; font-size:0.9rem; font-weight:600; cursor:pointer; margin-top:0.75rem; transition:background .2s; }
+        .sched-submit:hover { background:#1d4ed8; }
+        .sched-delete-btn { background:none; border:none; color:#ef4444; cursor:pointer; font-size:1rem; padding:4px; border-radius:4px; transition:background .2s; }
+        .sched-delete-btn:hover { background:#fee2e2; }
+    </style>
 </head>
 <body>
     <!-- Modal for Temperature History -->
@@ -607,10 +645,21 @@
 
                 <div id="user-badge" style="display: flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0.75rem; border-radius: 999px; font-size: 0.75rem; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.25); color: white; font-weight: 500;">
                 <button id="edit-layout-btn" onclick="toggleEditLayout()" style="padding: 0.5rem 1rem; background: rgba(59, 130, 246, 0.2); color: var(--accent); text-decoration: none; border-radius: var(--radius); font-weight: 500; border: 1px solid var(--accent); transition: all 0.3s; cursor: pointer; font-size: 0.8rem;">⚙️ Contrôler L'appareil</button>
+                <button onclick="openScheduleModal()" style="padding: 0.5rem 1rem; background: rgba(16,185,129,0.12); color: #059669; border-radius: var(--radius); font-weight: 500; border: 1px solid #059669; cursor: pointer; font-size: 0.8rem; transition: all 0.3s;" onmouseover="this.style.background='rgba(16,185,129,0.22)'" onmouseout="this.style.background='rgba(16,185,129,0.12)'">📅 Planification</button>
                 <a href="index.html" style="padding: 0.5rem 1rem; background: rgba(59, 130, 246, 0.2); color: var(--accent); text-decoration: none; border-radius: var(--radius); font-weight: 500; border: 1px solid var(--accent); transition: all 0.3s; font-size: 0.8rem;" onmouseover="this.style.background='rgba(59, 130, 246, 0.3)'" onmouseout="this.style.background='rgba(59, 130, 246, 0.2)'">← Retour</a>
             </div>
         </div>
     </header>
+
+    <!-- Auto-mode schedule banner -->
+    <div id="schedule-banner" style="display:none; background: linear-gradient(90deg,#059669,#10b981); color:white; padding:0.65rem 1.5rem; display:none; align-items:center; gap:1rem; font-size:0.88rem; font-weight:500;">
+        <span style="font-size:1.1rem;">🤖</span>
+        <span>MODE AUTO ACTIF —</span>
+        <strong id="schedule-banner-name"></strong>
+        <span id="schedule-banner-details" style="opacity:0.9;"></span>
+        <span style="margin-left:auto; opacity:0.85; font-size:0.78rem;" id="schedule-banner-until"></span>
+        <button onclick="dismissScheduleBanner()" style="background:rgba(255,255,255,0.2); border:none; color:white; border-radius:4px; padding:2px 8px; cursor:pointer; font-size:0.75rem;">✕ Ignorer</button>
+    </div>
 
     <main class="main-machine">
         <div class="breadcrumb">
@@ -898,7 +947,56 @@
         let consigneManuallyChanged = false;
         let extracteurManuallyToggled = false;
 
+        // ── Auto-mode lock ────────────────────────────────────
+        let autoModeActive = false;
+
+        function notifyAutoLocked() {
+            const container = document.getElementById('alarm-container');
+            if (!container) return;
+            const existing = document.getElementById('auto-lock-toast');
+            if (existing) { existing.style.animation = 'none'; setTimeout(() => existing.style.animation = '', 10); return; }
+            const toast = document.createElement('div');
+            toast.id = 'auto-lock-toast';
+            toast.className = 'alarm-toast';
+            toast.style.cssText = 'border-left-color:#f59e0b;pointer-events:all;';
+            toast.innerHTML = `
+                <div style="font-size:1.3rem;">🔒</div>
+                <div><div style="font-weight:700;font-size:0.85rem;">CONTRÔLE BLOQUÉ — MODE AUTO</div>
+                <div style="font-size:0.78rem;color:#6b7280;">Désactivez la planification pour reprendre le contrôle manuel.</div></div>
+                <button onclick="this.parentElement.remove()" style="margin-left:auto;border:none;background:none;cursor:pointer;">✕</button>`;
+            container.appendChild(toast);
+            setTimeout(() => toast.remove(), 5000);
+        }
+
+        function setAutoMode(active) {
+            autoModeActive = active;
+            const container = document.getElementById('machine-container');
+            if (container) {
+                if (active) {
+                    container.style.outline = '3px solid #10b981';
+                    container.style.outlineOffset = '-3px';
+                    container.title = 'Mode AUTO actif — contrôles désactivés';
+                } else {
+                    container.style.outline = '';
+                    container.style.outlineOffset = '';
+                    container.title = '';
+                }
+            }
+            // Lock/unlock sliders visually
+            document.querySelectorAll('.slider').forEach(s => {
+                s.disabled = active;
+                s.style.opacity = active ? '0.45' : '';
+                s.style.cursor  = active ? 'not-allowed' : '';
+            });
+            // Lock/unlock component buttons
+            document.querySelectorAll('.component').forEach(el => {
+                el.style.cursor  = active ? 'not-allowed' : '';
+                el.style.opacity = active ? '0.6' : '';
+            });
+        }
+
         function onSliderChange(field, val) {
+            if (autoModeActive) { notifyAutoLocked(); return; }
             const valueEl = document.getElementById(`${field}-value`);
             if (!valueEl) return;
             valueEl.textContent = val + '%';
@@ -924,6 +1022,7 @@
         }
 
         function changeConsigne() {
+            if (autoModeActive) { notifyAutoLocked(); return; }
             const valueEl = document.getElementById('consigne-value');
             if (!valueEl) return;
             const currentText = valueEl.textContent.trim();
@@ -959,6 +1058,7 @@
         let modeManuallyToggled = false;
 
         function toggleMode() {
+            if (autoModeActive) { notifyAutoLocked(); return; }
             const el = document.getElementById('mode');
             const valueEl = document.getElementById('mode-value');
             const current = valueEl.textContent.trim();
@@ -1058,6 +1158,7 @@
 
         // Toggle Actif / Inactif avec animation
         function toggleEtat() {
+            if (autoModeActive) { notifyAutoLocked(); return; }
             const el = document.getElementById('etat');
             const valueEl = document.getElementById('etat-value');
             const isActif = valueEl.textContent.trim() === 'Actif';
@@ -1633,6 +1734,7 @@
         }
 
         function toggleExtracteur() {
+            if (autoModeActive) { notifyAutoLocked(); return; }
             const valueEl = document.getElementById('extracteur-value');
             const isOn = valueEl.textContent.trim() === 'ON';
             const newValue = isOn ? 'OFF' : 'ON';
@@ -1727,11 +1829,12 @@
                 console.error('Initial update error:', err);
             });
 
-            // Initialize Energy Chart
-            initEnergyChart();
+            // Energy charts are initialized at the bottom of the energy script block
+            // (they depend on Chart.js and functions defined there)
 
             // ─── Notification & Socket.io Logic ─────────────────────
             const socket = io();
+            window._ctaSocket = socket; // expose for schedule module
             const notifCount = document.getElementById('notif-count');
             const notifList = document.getElementById('notif-list');
             const notifDropdown = document.getElementById('notif-dropdown');
@@ -2071,11 +2174,10 @@
     // Refresh daily chart every 5 min
     setInterval(refreshDailyChart, 5 * 60 * 1000);
 
-    // Init both charts on page load
-    window.addEventListener('DOMContentLoaded', () => {
-        initKwhRealtimeChart();
-        // initEnergyChart is already called from initMachinePage()
-    });
+    // Init both charts — called directly here because DOMContentLoaded
+    // has already fired by the time this script block executes (scripts at bottom of body)
+    initEnergyChart();
+    initKwhRealtimeChart();
 
     // Auth guard
     (function authGuard() {
@@ -2084,5 +2186,316 @@
         }
     })();
     </script>
+
+<!-- ═══════════════════════════════════════════════════════
+     SCHEDULE MODAL
+══════════════════════════════════════════════════════════ -->
+<div id="schedule-modal">
+    <div class="sched-modal-box">
+        <div class="sched-modal-header">
+            <h2>📅 Planification — Mode Auto / Manuel</h2>
+            <button onclick="closeScheduleModal()" style="background:none;border:none;font-size:1.5rem;cursor:pointer;color:#6b7280;">✕</button>
+        </div>
+        <div class="sched-modal-body">
+            <!-- Current mode indicator -->
+            <div id="sched-mode-indicator" style="display:flex;align-items:center;gap:0.75rem;padding:0.75rem 1rem;border-radius:10px;background:#f8fafc;border:1px solid #e5e7eb;margin-bottom:1.5rem;">
+                <span id="sched-mode-dot" style="width:10px;height:10px;border-radius:50%;background:#d1d5db;flex-shrink:0;"></span>
+                <span id="sched-mode-text" style="font-size:0.88rem;font-weight:500;">Mode MANUEL — aucune planification active</span>
+            </div>
+
+            <!-- Existing schedules list -->
+            <p class="sched-section-title">Planifications enregistrées</p>
+            <div class="sched-list" id="sched-list">
+                <div style="text-align:center;color:#9ca3af;font-size:0.82rem;padding:1rem;">Chargement…</div>
+            </div>
+
+            <!-- Add new schedule form -->
+            <p class="sched-section-title" style="margin-top:0.5rem;">Ajouter une planification</p>
+            <div class="sched-form">
+                <div class="sched-form-row full">
+                    <div>
+                        <label>Nom de la planification</label>
+                        <input type="text" id="sched-name" placeholder="Ex: Matin bureaux, Soirée réception…">
+                    </div>
+                </div>
+                <div class="sched-form-row">
+                    <div>
+                        <label>Heure de début</label>
+                        <input type="time" id="sched-on">
+                    </div>
+                    <div>
+                        <label>Heure de fin</label>
+                        <input type="time" id="sched-off">
+                    </div>
+                </div>
+                <div class="sched-form-row">
+                    <div>
+                        <label>Mode CTA</label>
+                        <select id="sched-mode">
+                            <option value="Chauffage">Chauffage</option>
+                            <option value="Climatisation">Climatisation</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label>Consigne (°C)</label>
+                        <input type="number" id="sched-consigne" min="5" max="30" value="22" step="0.5">
+                    </div>
+                </div>
+                <div class="sched-form-row full">
+                    <div>
+                        <label>Jours actifs</label>
+                        <div class="sched-days" id="sched-days">
+                            <button type="button" class="sched-day-btn selected" data-day="lun">Lun</button>
+                            <button type="button" class="sched-day-btn selected" data-day="mar">Mar</button>
+                            <button type="button" class="sched-day-btn selected" data-day="mer">Mer</button>
+                            <button type="button" class="sched-day-btn selected" data-day="jeu">Jeu</button>
+                            <button type="button" class="sched-day-btn selected" data-day="ven">Ven</button>
+                            <button type="button" class="sched-day-btn" data-day="sam">Sam</button>
+                            <button type="button" class="sched-day-btn" data-day="dim">Dim</button>
+                        </div>
+                    </div>
+                </div>
+                <div id="sched-error" style="color:#ef4444;font-size:0.8rem;margin-top:0.5rem;display:none;"></div>
+                <button class="sched-submit" onclick="submitSchedule()">+ Enregistrer la planification</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════
+// SCHEDULE MANAGEMENT
+// ═══════════════════════════════════════════════════════
+
+let _scheduleCtaId = 1; // will be resolved from DB
+
+async function resolveCtaId() {
+    try {
+        const res = await fetch('/api/groups');
+        const groups = await res.json();
+        if (groups.length > 0) _scheduleCtaId = groups[0].id;
+    } catch (e) {}
+}
+
+function openScheduleModal() {
+    document.getElementById('schedule-modal').classList.add('open');
+    loadSchedules();
+}
+
+function closeScheduleModal() {
+    document.getElementById('schedule-modal').classList.remove('open');
+}
+
+document.getElementById('schedule-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeScheduleModal();
+});
+
+// Day selector toggle
+document.querySelectorAll('.sched-day-btn').forEach(btn => {
+    btn.addEventListener('click', () => btn.classList.toggle('selected'));
+});
+
+function getSelectedDays() {
+    return Array.from(document.querySelectorAll('.sched-day-btn.selected'))
+                .map(b => b.dataset.day).join(',');
+}
+
+async function loadSchedules() {
+    const list = document.getElementById('sched-list');
+    list.innerHTML = '<div style="text-align:center;color:#9ca3af;font-size:0.82rem;padding:1rem;">Chargement…</div>';
+    try {
+        const res = await fetch(`/api/schedules?cta_id=${_scheduleCtaId}`);
+        const schedules = await res.json();
+        renderScheduleList(schedules);
+        updateScheduleModeIndicator(schedules);
+    } catch (e) {
+        list.innerHTML = '<div style="color:#ef4444;font-size:0.82rem;text-align:center;padding:1rem;">Erreur de chargement</div>';
+    }
+}
+
+function renderScheduleList(schedules) {
+    const list = document.getElementById('sched-list');
+    if (!schedules.length) {
+        list.innerHTML = '<div style="text-align:center;color:#9ca3af;font-size:0.82rem;padding:1rem;">Aucune planification enregistrée</div>';
+        return;
+    }
+    const DAY_LABELS = { lun:'Lun', mar:'Mar', mer:'Mer', jeu:'Jeu', ven:'Ven', sam:'Sam', dim:'Dim' };
+    list.innerHTML = schedules.map(s => {
+        const dayStr = s.days ? s.days.split(',').map(d => DAY_LABELS[d] || d).join(' · ') : 'Tous les jours';
+        const timeStr = (s.heure_on || '').slice(0,5) + ' → ' + (s.heure_off || '').slice(0,5);
+        const modeIcon = s.mode === 'Chauffage' ? '🔥' : '❄️';
+        const isActive = s.isActive;
+        return `
+        <div class="sched-item ${isActive ? 'active-now' : ''}" id="sched-item-${s.id}">
+            <div style="font-size:1.3rem;">${modeIcon}</div>
+            <div class="sched-item-info">
+                <div class="sched-item-name">
+                    ${s.name}
+                    ${isActive ? '<span class="sched-item-badge sched-badge-auto" style="margin-left:6px;">AUTO ACTIF</span>' : ''}
+                </div>
+                <div class="sched-item-meta">${dayStr} &nbsp;|&nbsp; ${timeStr} &nbsp;|&nbsp; ${s.mode} ${s.consigne}°C</div>
+            </div>
+            <label class="sched-toggle" title="${s.enabled ? 'Désactiver' : 'Activer'}">
+                <input type="checkbox" ${s.enabled ? 'checked' : ''} onchange="toggleSchedule(${s.id}, this.checked)">
+                <span class="sched-toggle-slider"></span>
+            </label>
+            <button class="sched-delete-btn" onclick="deleteSchedule(${s.id})" title="Supprimer">🗑</button>
+        </div>`;
+    }).join('');
+}
+
+function updateScheduleModeIndicator(schedules) {
+    const active = schedules.find(s => s.isActive);
+    const dot = document.getElementById('sched-mode-dot');
+    const text = document.getElementById('sched-mode-text');
+    if (active) {
+        dot.style.background = '#10b981';
+        text.innerHTML = `<strong>Mode AUTO</strong> — Planification active : <em>${active.name}</em> (${active.mode} ${active.consigne}°C)`;
+    } else {
+        dot.style.background = '#d1d5db';
+        text.textContent = 'Mode MANUEL — aucune planification active en ce moment';
+    }
+}
+
+async function toggleSchedule(id, enabled) {
+    try {
+        await fetch(`/api/schedules/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enabled: enabled ? 1 : 0 })
+        });
+        loadSchedules();
+    } catch (e) {
+        console.error('Toggle schedule failed', e);
+    }
+}
+
+async function deleteSchedule(id) {
+    if (!confirm('Supprimer cette planification ?')) return;
+    try {
+        await fetch(`/api/schedules/${id}`, { method: 'DELETE' });
+        loadSchedules();
+    } catch (e) {
+        console.error('Delete schedule failed', e);
+    }
+}
+
+async function submitSchedule() {
+    const name     = document.getElementById('sched-name').value.trim();
+    const heureOn  = document.getElementById('sched-on').value;
+    const heureOff = document.getElementById('sched-off').value;
+    const mode     = document.getElementById('sched-mode').value;
+    const consigne = parseFloat(document.getElementById('sched-consigne').value);
+    const days     = getSelectedDays();
+    const errEl    = document.getElementById('sched-error');
+
+    errEl.style.display = 'none';
+    if (!name) { errEl.textContent = 'Veuillez saisir un nom.'; errEl.style.display = 'block'; return; }
+    if (!heureOn || !heureOff) { errEl.textContent = 'Veuillez définir les heures de début et de fin.'; errEl.style.display = 'block'; return; }
+    if (heureOff <= heureOn) { errEl.textContent = 'L\'heure de fin doit être après l\'heure de début.'; errEl.style.display = 'block'; return; }
+    if (!days) { errEl.textContent = 'Veuillez sélectionner au moins un jour.'; errEl.style.display = 'block'; return; }
+
+    try {
+        const res = await fetch('/api/schedules', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cta_id: _scheduleCtaId, name, days, heure_on: heureOn, heure_off: heureOff, mode, consigne })
+        });
+        const data = await res.json();
+        if (!data.success) { errEl.textContent = data.error || 'Erreur serveur'; errEl.style.display = 'block'; return; }
+        // Reset form
+        document.getElementById('sched-name').value = '';
+        document.getElementById('sched-on').value = '';
+        document.getElementById('sched-off').value = '';
+        document.getElementById('sched-consigne').value = 22;
+        loadSchedules();
+    } catch (e) {
+        errEl.textContent = 'Erreur réseau : ' + e.message;
+        errEl.style.display = 'block';
+    }
+}
+
+// ── Schedule banner (shown when a schedule becomes active) ─
+function showScheduleBanner(data) {
+    const banner = document.getElementById('schedule-banner');
+    document.getElementById('schedule-banner-name').textContent = data.name;
+    document.getElementById('schedule-banner-details').textContent =
+        `| ${data.mode} | Consigne ${data.consigne}°C`;
+    document.getElementById('schedule-banner-until').textContent =
+        data.heure_off ? `Jusqu\'à ${String(data.heure_off).slice(0,5)}` : '';
+    banner.style.display = 'flex';
+}
+
+function hideScheduleBanner() {
+    document.getElementById('schedule-banner').style.display = 'none';
+}
+
+function dismissScheduleBanner() {
+    hideScheduleBanner();
+}
+
+// ── Socket.io schedule events ──────────────────────────────
+// window._ctaSocket is set by initMachinePage() which runs before this block
+(function registerScheduleSocketEvents() {
+    const socket = window._ctaSocket;
+    if (!socket) { console.warn('[SCHEDULE] Socket not ready'); return; }
+    socket.on('schedule_activated', function(data) {
+        console.log('[SCHEDULE] Activated:', data);
+        setAutoMode(true);
+        showScheduleBanner(data);
+        // Auto-apply mode and consigne to the machine view
+        if (data.mode) {
+            updateElement('mode-value', data.mode);
+            applyModeStyle(data.mode);
+        }
+        if (data.consigne) {
+            updateElement('consigne-value', data.consigne.toFixed(1) + '°C');
+        }
+        // Show a toast
+        const container = document.getElementById('alarm-container');
+        if (container) {
+            const toast = document.createElement('div');
+            toast.className = 'alarm-toast info';
+            toast.style.borderLeftColor = '#10b981';
+            toast.innerHTML = `
+                <div style="font-size:1.3rem;">🤖</div>
+                <div><div style="font-weight:700;font-size:0.85rem;">MODE AUTO ACTIVÉ</div>
+                <div style="font-size:0.8rem;">${data.name} — ${data.mode} ${data.consigne}°C</div></div>
+                <button onclick="this.parentElement.remove()" style="margin-left:auto;border:none;background:none;cursor:pointer;">✕</button>`;
+            container.appendChild(toast);
+            setTimeout(() => toast.remove(), 8000);
+        }
+    });
+
+    socket.on('schedule_deactivated', function(data) {
+        console.log('[SCHEDULE] Deactivated:', data);
+        setAutoMode(false);
+        hideScheduleBanner();
+        const container = document.getElementById('alarm-container');
+        if (container) {
+            const toast = document.createElement('div');
+            toast.className = 'alarm-toast';
+            toast.style.borderLeftColor = '#6b7280';
+            toast.innerHTML = `
+                <div style="font-size:1.3rem;">🔧</div>
+                <div><div style="font-weight:700;font-size:0.85rem;">RETOUR MODE MANUEL</div>
+                <div style="font-size:0.8rem;">Planification terminée : ${data.name}</div></div>
+                <button onclick="this.parentElement.remove()" style="margin-left:auto;border:none;background:none;cursor:pointer;">✕</button>`;
+            container.appendChild(toast);
+            setTimeout(() => toast.remove(), 6000);
+        }
+    });
+})();
+
+// Resolve CTA ID and check if any schedule is currently active on load
+resolveCtaId().then(async () => {
+    try {
+        const res = await fetch(`/api/schedules?cta_id=${_scheduleCtaId}`);
+        const schedules = await res.json();
+        const active = schedules.find(s => s.isActive);
+        if (active) { setAutoMode(true); showScheduleBanner(active); }
+    } catch(e) {}
+});
+</script>
 </body>
 </html>
