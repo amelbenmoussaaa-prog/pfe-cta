@@ -28,7 +28,7 @@
         }
 
         .main-machine {
-            max-width: 1200px;
+            max-width: 1400px;
             margin: 0 auto;
             padding: 1rem;
         }
@@ -132,6 +132,20 @@
         .component:focus-visible {
             outline: 3px solid var(--accent);
             outline-offset: 2px;
+        }
+
+        .component.display-only {
+            cursor: default;
+        }
+        .component.display-only:hover {
+            transform: none;
+            border-color: var(--accent);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+            background: rgba(255, 255, 255, 0.95);
+        }
+        .component.display-only:active {
+            transform: none;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
         }
 
         .component.selected {
@@ -307,16 +321,23 @@
             box-shadow: 0 2px 6px rgba(37, 99, 235, 0.4);
         }
 
-        #mode { top: 5%; left: 5%; }
-        #etat { top: 5%; right: 5%; }
-        #consigne { top: 22%; left: 38%; transform: translateX(-50%); }
-        #temp-ambiante { top: 22%; right: 18%; }
-        #temp-salle { top: 55%; right: 12%; }
-        #extracteur { top: 48%; }
-        #temp-reprise { bottom: 18%; left: 8%; }
-        #vanne-chaud { bottom: 18%; right: 12%; }
-        #vanne-froid  { bottom: 18%; right: 12%; }
-        #humidite { bottom: 5%; left: 50%; transform: translateX(-50%); }
+        /* Default positions — Chauffage mode (JS overrides per-mode on every applyModeStyle call) */
+        #mode          { top: 4%;    left: 2%;   }
+        #etat          { top: 4%;    right: 2%;  }
+        #temp-reprise  { top: 4%;    left: 34%;  }
+        #consigne      { top: 22%;   left: 30%;  }
+        #temp-ambiante { top: 22%;   right: 7%;  }
+        #extracteur    { top: 43%;   left: 2%;   }
+        #co2           { top: 57%;   left: 2%;   }
+        #temp-salle    { bottom: 5%; left: 39%;  }
+        #vanne-chaud   { bottom: 5%; right: 7%; border-color: #f59e0b; }
+        #vanne-chaud .extra-label { color: #f59e0b; }
+        #vanne-chaud .extra-value { color: #b45309; }
+        #vanne-froid   { bottom: 5%; left: 37%; border-color: #2563eb; }
+        #vanne-froid .extra-label { color: #2563eb; }
+        #vanne-froid .extra-value { color: #1d4ed8; }
+        #temp-aller    { top: 43%;   right: 25%; }
+        #temp-retour   { top: 56%;   right: 25%; }
 
         /* edit-panel styles removed */
 
@@ -570,9 +591,176 @@
         .sched-submit:hover { background:#1d4ed8; }
         .sched-delete-btn { background:none; border:none; color:#ef4444; cursor:pointer; font-size:1rem; padding:4px; border-radius:4px; transition:background .2s; }
         .sched-delete-btn:hover { background:#fee2e2; }
+
+        /* ── Network Config Modal ─────────────────────────────── */
+        #network-modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:10003; align-items:center; justify-content:center; }
+        #network-modal.open { display:flex; }
+        .net-modal-box { background:white; border-radius:16px; padding:0; width:min(720px,96vw); max-height:90vh; overflow-y:auto; box-shadow:0 24px 64px rgba(0,0,0,0.22); display:flex; flex-direction:column; }
+        .net-modal-header { padding:1.25rem 1.5rem; border-bottom:1px solid #e5e7eb; display:flex; justify-content:space-between; align-items:center; position:sticky; top:0; background:white; z-index:1; }
+        .net-modal-header h2 { margin:0; font-size:1.1rem; display:flex; align-items:center; gap:0.5rem; }
+        .net-modal-body { padding:1.5rem; flex:1; }
+        .net-section-title { font-size:0.7rem; text-transform:uppercase; letter-spacing:.06em; color:#6b7280; font-weight:600; margin:0 0 0.75rem; }
+        .net-device-list { display:flex; flex-direction:column; gap:0.65rem; margin-bottom:1.5rem; }
+        .net-device-item { display:flex; align-items:center; gap:0.75rem; padding:0.9rem 1rem; border:1px solid #e5e7eb; border-radius:10px; font-size:0.85rem; transition:border-color 0.2s; background:#fafafa; }
+        .net-device-item:hover { border-color:#2563eb; background:#f0f6ff; }
+        .net-device-info { flex:1; }
+        .net-device-name { font-weight:600; color:#1f2937; margin-bottom:3px; font-size:0.9rem; }
+        .net-device-ip { font-size:0.78rem; color:#4b5563; font-family:monospace; }
+        .net-device-meta { font-size:0.7rem; color:#9ca3af; margin-top:2px; }
+        .net-btn-edit { padding:4px 12px; background:#eff6ff; color:#2563eb; border:1px solid #2563eb; border-radius:6px; font-size:0.78rem; cursor:pointer; transition:all .2s; }
+        .net-btn-edit:hover { background:#2563eb; color:white; }
+        .net-btn-apply { padding:4px 12px; background:#f0fdf4; color:#059669; border:1px solid #059669; border-radius:6px; font-size:0.78rem; cursor:pointer; transition:all .2s; margin-left:4px; }
+        .net-btn-apply:hover { background:#059669; color:white; }
+        .net-btn-del { padding:4px 8px; background:none; border:none; color:#ef4444; cursor:pointer; font-size:1rem; border-radius:4px; transition:background .2s; }
+        .net-btn-del:hover { background:#fee2e2; }
+        .net-form { background:#f8fafc; border:1px solid #e5e7eb; border-radius:12px; padding:1.25rem; margin-top:0.5rem; }
+        .net-form-title { font-size:0.85rem; font-weight:700; color:#1f2937; margin-bottom:1rem; padding-bottom:0.5rem; border-bottom:1px solid #e5e7eb; }
+        .net-form-grid { display:grid; grid-template-columns:1fr 1fr; gap:0.75rem; margin-bottom:0.75rem; }
+        .net-form-grid.full { grid-template-columns:1fr; }
+        .net-form label { font-size:0.75rem; font-weight:600; color:#374151; display:block; margin-bottom:0.3rem; }
+        .net-form input, .net-form select { width:100%; padding:0.5rem 0.65rem; border:1px solid #d1d5db; border-radius:6px; font-size:0.85rem; box-sizing:border-box; transition:border-color .2s; background:white; }
+        .net-form input { font-family:monospace; }
+        .net-form input:focus, .net-form select:focus { outline:none; border-color:#2563eb; box-shadow:0 0 0 3px rgba(37,99,235,0.1); }
+        .net-form-actions { display:flex; gap:0.5rem; margin-top:0.75rem; }
+        .net-form-save { flex:1; padding:0.65rem; background:#2563eb; color:white; border:none; border-radius:8px; font-size:0.88rem; font-weight:600; cursor:pointer; transition:background .2s; }
+        .net-form-save:hover { background:#1d4ed8; }
+        .net-form-send { flex:1; padding:0.65rem; background:#059669; color:white; border:none; border-radius:8px; font-size:0.88rem; font-weight:600; cursor:pointer; transition:background .2s; }
+        .net-form-send:hover { background:#047857; }
+        .net-form-cancel { padding:0.65rem 1.25rem; background:#f1f5f9; color:#6b7280; border:none; border-radius:8px; font-size:0.88rem; cursor:pointer; transition:background .2s; }
+        .net-form-cancel:hover { background:#e2e8f0; }
+        .net-status-ok { display:inline-flex; align-items:center; gap:4px; font-size:0.7rem; color:#059669; font-weight:600; }
+        .net-status-ok::before { content:''; width:7px; height:7px; background:#059669; border-radius:50%; display:inline-block; }
+        .net-add-btn { width:100%; padding:0.65rem; background:none; border:2px dashed #d1d5db; border-radius:10px; color:#6b7280; font-size:0.85rem; cursor:pointer; transition:all .2s; margin-bottom:1rem; }
+        .net-add-btn:hover { border-color:#2563eb; color:#2563eb; background:#f0f6ff; }
+        .net-toast { position:fixed; bottom:24px; right:24px; background:#1f2937; color:white; padding:0.75rem 1.25rem; border-radius:8px; font-size:0.85rem; z-index:20000; animation:slideIn 0.3s ease; display:flex; align-items:center; gap:0.5rem; }
+        .net-toast.success { background:#059669; }
+        .net-toast.error { background:#dc2626; }
+
+        /* ── Full History Modal ─────────────────────────────── */
+        #full-history-modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:10002; align-items:center; justify-content:center; }
+        #full-history-modal.open { display:flex; }
+        .fhist-box { background:white; border-radius:16px; width:min(1060px,96vw); max-height:90vh; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 24px 64px rgba(0,0,0,0.22); }
+        .fhist-header { padding:1.25rem 1.5rem; border-bottom:1px solid #e5e7eb; display:flex; justify-content:space-between; align-items:center; background:white; }
+        .fhist-tabs { display:flex; background:#f8fafc; border-bottom:2px solid #e5e7eb; }
+        .fhist-tab { padding:0.75rem 1.5rem; border:none; background:none; cursor:pointer; font-size:0.88rem; font-weight:600; color:#6b7280; border-bottom:3px solid transparent; margin-bottom:-2px; transition:all .2s; }
+        .fhist-tab.active { color:#2563eb; border-bottom-color:#2563eb; background:white; }
+        .fhist-tab:hover:not(.active) { color:#374151; background:#f1f5f9; }
+        .fhist-body { overflow-y:auto; flex:1; padding:1.25rem; min-height:200px; }
+        .fhist-table { width:100%; border-collapse:collapse; font-size:0.8rem; }
+        .fhist-table th { background:#f1f5f9; padding:10px 12px; text-align:left; font-weight:700; color:#1e293b; border-bottom:2px solid #e2e8f0; position:sticky; top:0; white-space:nowrap; }
+        .fhist-table td { padding:9px 12px; border-bottom:1px solid #f1f5f9; color:#334155; }
+        .fhist-table tr:hover td { background:#f8fafc; }
+        .fhist-controls { display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:0.5rem; }
+        .fhist-view-toggle { display:flex; gap:0.35rem; }
+        .fhist-view-btn { padding:0.28rem 0.7rem; border:1px solid #cbd5e1; border-radius:6px; background:white; color:#64748b; font-size:0.76rem; font-weight:600; cursor:pointer; transition:all .15s; }
+        .fhist-view-btn.active { background:#2563eb; color:white; border-color:#2563eb; }
+        .fhist-chart-wrap { position:relative; width:100%; height:320px; }
+        .fhist-legend { display:flex; flex-wrap:wrap; gap:0.5rem 1rem; margin-top:0.75rem; font-size:0.75rem; }
+        .fhist-legend-item { display:flex; align-items:center; gap:0.3rem; cursor:pointer; user-select:none; }
+        .fhist-legend-dot { width:12px; height:3px; border-radius:2px; }
     </style>
 </head>
 <body>
+    <!-- Network Config Modal -->
+    <div id="network-modal">
+        <div class="net-modal-box">
+            <div class="net-modal-header">
+                <h2>🌐 Configuration Réseau — Cartes ESP32</h2>
+                <button onclick="closeNetworkModal()" style="background:none;border:none;font-size:1.6rem;cursor:pointer;color:#6b7280;line-height:1;padding:0 4px;">×</button>
+            </div>
+            <div class="net-modal-body">
+                <p class="net-section-title">Appareils enregistrés</p>
+                <button class="net-add-btn" onclick="showNetForm(null)">+ Ajouter un appareil ESP32</button>
+                <div class="net-device-list" id="net-device-list">
+                    <div style="text-align:center;padding:2rem;color:#9ca3af;font-size:0.85rem;">Chargement...</div>
+                </div>
+
+                <!-- Form panel (hidden by default) -->
+                <div class="net-form" id="net-form" style="display:none;">
+                    <div class="net-form-title" id="net-form-title">Nouveau appareil</div>
+                    <input type="hidden" id="net-form-id">
+                    <div class="net-form-grid">
+                        <div>
+                            <label>Nom de l'appareil</label>
+                            <input type="text" id="nf-device-name" placeholder="Ex: ESP32-CTA-1">
+                        </div>
+                        <div>
+                            <label>Device ID (cta_id)</label>
+                            <input type="number" id="nf-device-id" placeholder="Ex: 1" min="1">
+                        </div>
+                    </div>
+                    <div class="net-form-grid">
+                        <div>
+                            <label>Numéro de carte (1–4)</label>
+                            <input type="number" id="nf-card-number" placeholder="Ex: 1" min="1" max="4">
+                        </div>
+                        <div>
+                            <label>Rôle de la carte</label>
+                            <select id="nf-role">
+                                <option value="capteurs">Capteurs (températures)</option>
+                                <option value="actionneurs">Actionneurs (ventilateur, registres)</option>
+                                <option value="energie">Compteur d'énergie</option>
+                                <option value="qualite_air">Qualité d'air (CO₂, humidité)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="net-form-grid">
+                        <div>
+                            <label>Adresse IP fixe</label>
+                            <input type="text" id="nf-static-ip" placeholder="192.168.1.100">
+                        </div>
+                        <div>
+                            <label>Passerelle (Gateway)</label>
+                            <input type="text" id="nf-gateway" placeholder="192.168.1.1">
+                        </div>
+                    </div>
+                    <div class="net-form-grid">
+                        <div>
+                            <label>Masque sous-réseau (Subnet)</label>
+                            <input type="text" id="nf-subnet" placeholder="255.255.255.0">
+                        </div>
+                        <div>
+                            <label>DNS</label>
+                            <input type="text" id="nf-dns" placeholder="8.8.8.8">
+                        </div>
+                    </div>
+                    <div class="net-form-grid">
+                        <div>
+                            <label>SSID Wi-Fi</label>
+                            <input type="text" id="nf-wifi-ssid" placeholder="Nom du réseau Wi-Fi">
+                        </div>
+                        <div>
+                            <label>Mot de passe Wi-Fi</label>
+                            <input type="password" id="nf-wifi-pass" placeholder="••••••••">
+                        </div>
+                    </div>
+                    <div class="net-form-actions">
+                        <button class="net-form-cancel" onclick="hideNetForm()">Annuler</button>
+                        <button class="net-form-save" onclick="saveNetDevice()">💾 Enregistrer</button>
+                        <button class="net-form-send" id="net-form-send-btn" onclick="applyNetConfig()" style="display:none;">📡 Envoyer à l'ESP</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Full History Modal -->
+    <div id="full-history-modal">
+        <div class="fhist-box">
+            <div class="fhist-header">
+                <h2 style="margin:0; font-size:1.1rem; display:flex; align-items:center; gap:0.5rem;">📋 Historique — Données CTA</h2>
+                <button onclick="closeFullHistoryModal()" style="background:none; border:none; font-size:1.6rem; cursor:pointer; color:#6b7280; line-height:1; padding:0 4px;">×</button>
+            </div>
+            <div class="fhist-tabs">
+                <button class="fhist-tab active" id="fhist-tab-temp" onclick="switchHistTab('temp')">🌡️ Températures</button>
+                <button class="fhist-tab" id="fhist-tab-co2" onclick="switchHistTab('co2')">💨 CO₂ / Qualité d'air</button>
+            </div>
+            <div class="fhist-body" id="fhist-body">
+                <div style="text-align:center;padding:3rem;color:#64748b;">Chargement...</div>
+            </div>
+        </div>
+    </div>
+
     <!-- Modal for Temperature History -->
     <div id="historyModal" class="modal">
         <div class="modal-content">
@@ -644,8 +832,9 @@
                 </div>
 
                 <div id="user-badge" style="display: flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0.75rem; border-radius: 999px; font-size: 0.75rem; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.25); color: white; font-weight: 500;">
-                <button id="edit-layout-btn" onclick="toggleEditLayout()" style="padding: 0.5rem 1rem; background: rgba(59, 130, 246, 0.2); color: var(--accent); text-decoration: none; border-radius: var(--radius); font-weight: 500; border: 1px solid var(--accent); transition: all 0.3s; cursor: pointer; font-size: 0.8rem;">⚙️ Contrôler L'appareil</button>
                 <button onclick="openScheduleModal()" style="padding: 0.5rem 1rem; background: rgba(16,185,129,0.12); color: #059669; border-radius: var(--radius); font-weight: 500; border: 1px solid #059669; cursor: pointer; font-size: 0.8rem; transition: all 0.3s;" onmouseover="this.style.background='rgba(16,185,129,0.22)'" onmouseout="this.style.background='rgba(16,185,129,0.12)'">📅 Planification</button>
+                <button onclick="openFullHistoryModal()" style="padding: 0.5rem 1rem; background: rgba(37,99,235,0.12); color: #2563eb; border-radius: var(--radius); font-weight: 500; border: 1px solid #2563eb; cursor: pointer; font-size: 0.8rem; transition: all 0.3s;" onmouseover="this.style.background='rgba(37,99,235,0.22)'" onmouseout="this.style.background='rgba(37,99,235,0.12)'">📋 Historique</button>
+                <button onclick="openNetworkModal()" style="padding: 0.5rem 1rem; background: rgba(124,58,237,0.12); color: #7c3aed; border-radius: var(--radius); font-weight: 500; border: 1px solid #7c3aed; cursor: pointer; font-size: 0.8rem; transition: all 0.3s;" onmouseover="this.style.background='rgba(124,58,237,0.22)'" onmouseout="this.style.background='rgba(124,58,237,0.12)'">🌐 Réseau</button>
                 <a href="index.html" style="padding: 0.5rem 1rem; background: rgba(59, 130, 246, 0.2); color: var(--accent); text-decoration: none; border-radius: var(--radius); font-weight: 500; border: 1px solid var(--accent); transition: all 0.3s; font-size: 0.8rem;" onmouseover="this.style.background='rgba(59, 130, 246, 0.3)'" onmouseout="this.style.background='rgba(59, 130, 246, 0.2)'">← Retour</a>
             </div>
         </div>
@@ -671,8 +860,71 @@
         <div class="title-row">
             <div class="machine-title" id="machine-display-title">CTA Salle Polyvalente</div>
         </div>
+        <!-- Flex row: CO₂ legend + machine schema -->
+        <div style="display: flex; gap: 1rem; align-items: flex-start;">
+
+        <!-- CO₂ quality legend -->
+        <div style="flex-shrink:0; width:200px; background:white; border-radius:14px; box-shadow:0 4px 16px -2px rgba(0,0,0,0.10); border:1px solid #e5e7eb; overflow:hidden; font-family:inherit;">
+            <!-- Header -->
+            <div style="background:linear-gradient(135deg,#f0f9ff 0%,#e0f2fe 100%); padding:0.75rem 1rem; border-bottom:1px solid #bae6fd; display:flex; align-items:center; gap:0.5rem;">
+                <span style="font-size:1rem;">💨</span>
+                <div>
+                    <div style="font-weight:700; font-size:0.82rem; color:#0369a1; letter-spacing:0.01em;">Qualité CO₂</div>
+                    <div style="font-size:0.65rem; color:#0284c7; margin-top:1px;">Seuils &amp; actions automatiques</div>
+                </div>
+            </div>
+            <!-- Column labels -->
+            <div style="display:grid; grid-template-columns:1fr 1fr; padding:0.4rem 0.75rem; background:#f8fafc; border-bottom:1px solid #e5e7eb;">
+                <span style="font-size:0.6rem; font-weight:700; color:#94a3b8; text-transform:uppercase; letter-spacing:0.06em;">CO₂ (PPM)</span>
+                <span style="font-size:0.6rem; font-weight:700; color:#94a3b8; text-transform:uppercase; letter-spacing:0.06em;">État / Action</span>
+            </div>
+            <!-- Row: Bon -->
+            <div style="display:grid; grid-template-columns:1fr 1fr; align-items:center; padding:0.55rem 0.75rem; border-left:4px solid #22c55e; border-bottom:1px solid #f1f5f9; background:#fff;">
+                <div style="font-size:0.78rem; font-weight:600; color:#374151;">&lt; 900</div>
+                <div>
+                    <span style="display:inline-block; background:#dcfce7; color:#15803d; padding:2px 8px; border-radius:99px; font-weight:700; font-size:0.68rem;">Bon</span>
+                    <div style="font-size:0.62rem; color:#6b7280; margin-top:3px; display:flex; align-items:center; gap:3px;">
+                        <span style="width:6px; height:6px; border-radius:50%; background:#d1d5db; display:inline-block;"></span>Extracteur OFF
+                    </div>
+                </div>
+            </div>
+            <!-- Row: Acceptable -->
+            <div style="display:grid; grid-template-columns:1fr 1fr; align-items:center; padding:0.55rem 0.75rem; border-left:4px solid #38bdf8; border-bottom:1px solid #f1f5f9; background:#fff;">
+                <div style="font-size:0.78rem; font-weight:600; color:#374151;">900 – 1000</div>
+                <div>
+                    <span style="display:inline-block; background:#e0f2fe; color:#0369a1; padding:2px 8px; border-radius:99px; font-weight:700; font-size:0.68rem;">Acceptable</span>
+                    <div style="font-size:0.62rem; color:#6b7280; margin-top:3px; display:flex; align-items:center; gap:3px;">
+                        <span style="width:6px; height:6px; border-radius:50%; background:#d1d5db; display:inline-block;"></span>Surveillance
+                    </div>
+                </div>
+            </div>
+            <!-- Row: Mauvaise -->
+            <div style="display:grid; grid-template-columns:1fr 1fr; align-items:center; padding:0.55rem 0.75rem; border-left:4px solid #f59e0b; border-bottom:1px solid #f1f5f9; background:#fffbeb;">
+                <div style="font-size:0.78rem; font-weight:600; color:#374151;">1000 – 2000</div>
+                <div>
+                    <span style="display:inline-block; background:#fef9c3; color:#a16207; padding:2px 8px; border-radius:99px; font-weight:700; font-size:0.68rem;">Mauvaise</span>
+                    <div style="font-size:0.62rem; color:#b45309; margin-top:3px; display:flex; align-items:center; gap:3px;">
+                        <span style="width:6px; height:6px; border-radius:50%; background:#f59e0b; display:inline-block;"></span>Extracteur ON
+                    </div>
+                </div>
+            </div>
+            <!-- Row: Dangereuse -->
+            <div style="display:grid; grid-template-columns:1fr 1fr; align-items:center; padding:0.55rem 0.75rem; border-left:4px solid #ef4444; background:#fff5f5;">
+                <div style="font-size:0.78rem; font-weight:600; color:#374151;">&gt; 2000</div>
+                <div>
+                    <span style="display:inline-block; background:#fee2e2; color:#b91c1c; padding:2px 8px; border-radius:99px; font-weight:700; font-size:0.68rem;">Dangereuse</span>
+                    <div style="font-size:0.62rem; color:#dc2626; margin-top:3px; display:flex; align-items:center; gap:3px;">
+                        <span style="width:6px; height:6px; border-radius:50%; background:#ef4444; display:inline-block; animation:pulse-dot 1s infinite;"></span>Alarme + ON
+                    </div>
+                </div>
+            </div>
+        </div>
+        <style>
+            @keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:0.3} }
+        </style>
+
         <!-- Container de la machine -->
-        <div class="machine-container" id="machine-container" style="background-color: white !important;">
+        <div class="machine-container" id="machine-container" style="background-color: white !important; flex: 1; min-width: 0;">
             <button class="component" id="mode" onclick="onComponentClick('mode')" title="Cliquer pour voir le détail du mode">
                 <div class="label">Mode</div>
                 <div class="value" id="mode-value">Chauffage</div>
@@ -688,57 +940,52 @@
                 <div class="value" id="consigne-value">22°C</div>
             </button>
 
-            <button class="component" id="temp-ambiante" onclick="onComponentClick('temp-ambiante')" title="Cliquer pour voir la température de soufflage">
+            <div class="component display-only" id="temp-ambiante">
                 <div class="label">T° soufflage</div>
                 <div class="value" id="temp-ambiante-value">20.0°C</div>
-            </button>
+            </div>
 
-            <button class="component" id="temp-salle" onclick="onComponentClick('temp-salle')" title="Cliquer pour voir la température de la salle">
+            <div class="component display-only" id="temp-salle">
                 <div class="label">T° salle</div>
                 <div class="value" id="temp-salle-value">21.5°C</div>
-            </button>
+            </div>
 
-            <button class="component" id="temp-reprise" onclick="onComponentClick('temp-reprise')" title="Cliquer pour voir la température de reprise">
+            <div class="component display-only" id="temp-reprise">
                 <div class="label">T° reprise</div>
                 <div class="value" id="temp-reprise-value">45.2°C</div>
-            </button>
+            </div>
 
             <button class="component" id="extracteur" onclick="toggleExtracteur()" title="Activer ou désactiver l'extracteur">
                 <div class="label">Extracteur</div>
                 <div class="value" id="extracteur-value">OFF</div>
             </button>
 
-            <button class="component" id="co2" onclick="onComponentClick('co2')" title="Niveau de CO2">
-                <div class="label">eCO2 Level</div>
+            <div class="component display-only" id="co2">
+                <div class="label">Level co2</div>
                 <div class="value" id="co2-value">450 PPM</div>
-            </button>
-
-            <div class="component slider-component" id="vanne-chaud">
-                <div class="label">Vanne Chaud</div>
-                <div class="value" id="vanne-chaud-value">65%</div>
-                <input type="range" min="0" max="100" value="65" class="slider" id="vanne-chaud-slider"
-                    oninput="onSliderChange('vanne-chaud', this.value)"
-                    onclick="event.stopPropagation()">
             </div>
-            <div class="component slider-component" id="vanne-froid" style="display:none;">
-                <div class="label">Vanne Froid</div>
-                <div class="value" id="vanne-froid-value">30%</div>
-                <input type="range" min="0" max="100" value="30" class="slider" id="vanne-froid-slider"
-                    oninput="onSliderChange('vanne-froid', this.value)"
-                    onclick="event.stopPropagation()">
+
+            <div class="extra-temp-box visible" id="vanne-chaud" onclick="onComponentClick('vanne-chaud')" title="Cliquer pour saisir la valeur" style="cursor:pointer;">
+                <div class="extra-label">Vanne Chaud</div>
+                <div class="extra-value" id="vanne-chaud-value">65%</div>
+            </div>
+            <div class="extra-temp-box visible" id="vanne-froid" onclick="onComponentClick('vanne-froid')" title="Cliquer pour saisir la valeur" style="display:none;cursor:pointer;">
+                <div class="extra-label">Vanne Froid</div>
+                <div class="extra-value" id="vanne-froid-value">30%</div>
             </div>
 
             <!-- Extra temp boxes -->
-            <div class="extra-temp-box" id="temp-aller" onclick="onComponentClick('temp-aller')" style="cursor: pointer;">
-                <div class="extra-label" id="temp-aller-label">Temp Aller</div>
+            <div class="extra-temp-box" id="temp-aller">
+                <div class="extra-label" id="temp-aller-label">T° Aller</div>
                 <div class="extra-value" id="temp-aller-value">7.0°C</div>
             </div>
-            <div class="extra-temp-box" id="temp-retour" onclick="onComponentClick('temp-retour')" style="cursor: pointer;">
-                <div class="extra-label" id="temp-retour-label">Temp Retour</div>
+            <div class="extra-temp-box" id="temp-retour">
+                <div class="extra-label" id="temp-retour-label">T° Retour</div>
                 <div class="extra-value" id="temp-retour-value">12.0°C</div>
             </div>
 
         </div>
+        </div><!-- end flex row -->
 
 
         <!-- Energy Panel -->
@@ -819,6 +1066,8 @@
             if (id === 'etat') { toggleEtat(); return; }
             if (id === 'mode') { toggleMode(); return; }
             if (id === 'consigne') { changeConsigne(); return; }
+            if (id === 'vanne-chaud') { changeVanne('vanne-chaud'); return; }
+            if (id === 'vanne-froid') { changeVanne('vanne-froid'); return; }
             
             // IF CLICK ON TEMP BOX -> SHOW SPECIFIC HISTORY
             if (id.includes('temp')) {
@@ -1045,7 +1294,69 @@
             }
         }
 
+        function changeVanne(field) {
+            if (autoModeActive) { notifyAutoLocked(); return; }
+            const valueEl = document.getElementById(`${field}-value`);
+            if (!valueEl) return;
+            const current = parseInt(valueEl.textContent) || 0;
+            const label = field === 'vanne-chaud' ? 'Vanne Chaud (%)' : 'Vanne Froid (%)';
+            const newValue = window.prompt(label, current);
+            if (newValue === null) return;
+            const parsed = parseInt(newValue, 10);
+            if (Number.isNaN(parsed)) { alert('Veuillez saisir une valeur entière entre 0 et 100.'); return; }
+            const clamped = Math.max(0, Math.min(100, parsed));
+            valueEl.textContent = clamped + '%';
+            if (field === 'vanne-chaud') { vanneChaudManuallyChanged = true; sendCommand('vanne_chaud', clamped); }
+            else { vanneFroidManuallyChanged = true; sendCommand('vanne_froid', clamped); }
+        }
+
         // Cycle Chauffage → Climatisation → Chauffage…
+        // ── Fixed positions per mode (matches the reference screenshots) ──
+        const FIXED_POSITIONS = {
+            Chauffage: {
+                'mode':          { top: '4%',    left: '2%',   right: 'auto', bottom: 'auto' },
+                'etat':          { top: '4%',    right: '2%',  left: 'auto',  bottom: 'auto' },
+                'temp-reprise':  { top: '1%',    left: '38%',  right: 'auto', bottom: 'auto' },
+                'consigne':      { top: '22%',   left: '30%',  right: 'auto', bottom: 'auto' },
+                'temp-ambiante': { top: '18%',   right: '7%',  left: 'auto',  bottom: 'auto' },
+                'extracteur':    { top: '43%',   left: '2%',   right: 'auto', bottom: 'auto' },
+                'co2':           { top: '57%',   left: '2%',   right: 'auto', bottom: 'auto' },
+                'temp-salle':    { bottom: '5%', left: '39%',  right: 'auto', top: 'auto'    },
+                'vanne-chaud':   { bottom: '13%', right: '22%',  left: 'auto',  top: 'auto'    },
+                'vanne-froid':   { bottom: '5%', left: '37%',  right: 'auto', top: 'auto'    },
+                'temp-aller':    { top: '43%',   right: '25%', left: 'auto',  bottom: 'auto' },
+                'temp-retour':   { top: '56%',   right: '25%', left: 'auto',  bottom: 'auto' },
+            },
+            Climatisation: {
+                'mode':          { top: '4%',     left: '2%',   right: 'auto', bottom: 'auto' },
+                'etat':          { top: '4%',     right: '2%',  left: 'auto',  bottom: 'auto' },
+                'temp-reprise':  { top: '1%',     left: '38%',  right: 'auto', bottom: 'auto' },
+                'consigne':      { top: '22%',    left: '30%',  right: 'auto', bottom: 'auto' },
+                'temp-ambiante': { top: '18%',    right: '7%',  left: 'auto',  bottom: 'auto' },
+               'extracteur':    { top: '43%',   left: '2%',   right: 'auto', bottom: 'auto' },
+                'co2':           { top: '57%',   left: '2%',   right: 'auto', bottom: 'auto' },
+                'temp-salle':    { bottom: '5%',  left: '19%',  right: 'auto', top: 'auto'    },
+                'vanne-chaud':   { bottom: '5%',  right: '7%',  left: 'auto',  top: 'auto'    },
+                'vanne-froid':   { bottom: '5%',  left: '47%',  right: 'auto', top: 'auto'    },
+                'temp-aller':    { bottom: '35%', left: '35%',  right: 'auto', top: 'auto'    },
+                'temp-retour':   { bottom: '23%', left: '35%',  right: 'auto', top: 'auto'    },
+            }
+        };
+
+        function applyFixedPositions(mode) {
+            const pos = FIXED_POSITIONS[mode];
+            if (!pos) return;
+            Object.entries(pos).forEach(([id, p]) => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.style.top    = p.top    || '';
+                el.style.left   = p.left   || '';
+                el.style.right  = p.right  || '';
+                el.style.bottom = p.bottom || '';
+                el.style.transform = ''; // clear any translateX(-50%)
+            });
+        }
+
         const MODES = ['Chauffage', 'Climatisation'];
         const MODE_CLASS = {
             'Chauffage':     'mode-chauffage',
@@ -1154,6 +1465,9 @@
                 if (allerBox) allerBox.classList.remove('visible');
                 if (retourBox) retourBox.classList.remove('visible');
             }
+
+            // Apply fixed positions for this mode (always reset to reference layout)
+            applyFixedPositions(mode);
         }
 
         // Toggle Actif / Inactif avec animation
@@ -1202,19 +1516,19 @@
 
         // Helper to send MQTT commands via Backend
         function sendCommand(type, value) {
-            const deviceMap = {
-                'galerie-gauche': 1,
-                'galerie-droite': 2, // Assuming these IDs exist
-                'salle-polyvalente': 3,
-                'hall-reception': 4
-            };
-            const deviceId = deviceMap[currentCTA] || 1;
+            // deviceId = 1 pour tous les CTA (correspond à CTA_ID dans l'Arduino)
+            const deviceId = 1;
+
+            console.log(`[MQTT CMD] actuatorType="${type}" value="${value}" → topic=cta/${deviceId}/commands`);
 
             fetch('/api/commands', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ deviceId, actuatorType: type, value })
-            }).catch(e => console.error('Failed to send command:', e));
+            })
+            .then(r => r.json())
+            .then(d => console.log('[MQTT CMD] Réponse backend:', d))
+            .catch(e => console.error('[MQTT CMD] Erreur fetch:', e));
         }
 
         // État de l'édition — REMOVED
@@ -1385,7 +1699,12 @@
                     if (data.eco2 != null) {
                         updateElement('co2-value', parseInt(data.eco2) + ' PPM');
                         const co2Box = document.getElementById('co2');
-                        if (co2Box) co2Box.classList.toggle('danger', data.eco2 > 1000);
+                        if (co2Box) {
+                            co2Box.classList.toggle('warning', data.eco2 > 1000 && data.eco2 <= 2000);
+                            co2Box.classList.toggle('danger', data.eco2 > 2000);
+                            if (data.eco2 <= 1000) { co2Box.classList.remove('warning'); co2Box.classList.remove('danger'); }
+                        }
+                        autoCO2ExtractorControl(data.eco2);
                     }
 
                     // Energy & KPIs
@@ -1442,8 +1761,7 @@
                 else if (ctaId === 'hall-reception') titleEl.textContent = 'CTA Hall Réception';
             }
             
-            // Charger les données pour ce CTA
-            loadPositions();
+            // Charger les données pour ce CTA (positions are fixed per-mode, no localStorage override)
             updateValuesFromStorage();
         }
 
@@ -1576,14 +1894,10 @@
             if (!vanneChaudManuallyChanged) {
                 const vc = parseInt(def.vanneChaud || '0');
                 updateElement('vanne-chaud-value', vc + '%');
-                const vcs = document.getElementById('vanne-chaud-slider');
-                if (vcs) { vcs.value = vc; onSliderChange('vanne-chaud', vc); vanneChaudManuallyChanged = false; }
             }
             if (!vanneFroidManuallyChanged) {
                 const vf = parseInt(def.vanneFroid || '0');
                 updateElement('vanne-froid-value', vf + '%');
-                const vfs = document.getElementById('vanne-froid-slider');
-                if (vfs) { vfs.value = vf; onSliderChange('vanne-froid', vf); vanneFroidManuallyChanged = false; }
             }
             if (!humiditeManuallyChanged) {
                 const hVal = def.humidite || '50%';
@@ -1662,9 +1976,11 @@
                         updateElement('co2-value', co2Val + ' PPM');
                         const co2Box = document.getElementById('co2');
                         if (co2Box) {
-                            if (co2Val > 1000) co2Box.classList.add('danger');
-                            else co2Box.classList.remove('danger');
+                            co2Box.classList.toggle('warning', co2Val > 1000 && co2Val <= 2000);
+                            co2Box.classList.toggle('danger', co2Val > 2000);
+                            if (co2Val <= 1000) { co2Box.classList.remove('warning'); co2Box.classList.remove('danger'); }
                         }
+                        autoCO2ExtractorControl(co2Val);
                     }
 
                     // Update energy chart + KPI cards from polling
@@ -1734,7 +2050,6 @@
         }
 
         function toggleExtracteur() {
-            if (autoModeActive) { notifyAutoLocked(); return; }
             const valueEl = document.getElementById('extracteur-value');
             const isOn = valueEl.textContent.trim() === 'ON';
             const newValue = isOn ? 'OFF' : 'ON';
@@ -1764,10 +2079,65 @@
             }
         }
 
+        // CO2-based extractor auto-control — runs in all modes
+        function autoCO2ExtractorControl(co2Val) {
+            const co2 = parseInt(co2Val);
+            if (isNaN(co2)) return;
+
+            // CO2 danger alarm (> 2000 PPM)
+            if (co2 > 2000) {
+                const alarmKey = 'co2_danger_shown';
+                if (!window[alarmKey]) {
+                    window[alarmKey] = true;
+                    const container = document.getElementById('alarm-container');
+                    if (container) {
+                        const toast = document.createElement('div');
+                        toast.className = 'alarm-toast';
+                        toast.style.borderLeftColor = '#ef4444';
+                        toast.innerHTML = `
+                            <div style="font-size:1.5rem;">🚨</div>
+                            <div>
+                                <div style="font-weight:700;font-size:0.85rem;">ALARME CO₂ CRITIQUE</div>
+                                <div style="font-size:0.78rem;color:#6b7280;">${co2} PPM — Qualité d'air dangereuse! Extracteur activé.</div>
+                            </div>
+                            <button onclick="this.parentElement.remove();window.co2_danger_shown=false;" style="margin-left:auto;border:none;background:none;cursor:pointer;font-size:1rem;">✕</button>`;
+                        container.appendChild(toast);
+                        setTimeout(() => { toast.remove(); window[alarmKey] = false; }, 10000);
+                    }
+                }
+            } else if (co2 <= 1800) {
+                window['co2_danger_shown'] = false;
+            }
+
+            // Auto extractor command — only if not manually toggled
+            if (extracteurManuallyToggled) return;
+            let newState = null;
+            if (co2 < 900) newState = 'OFF';
+            else if (co2 > 1000) newState = 'ON';
+            if (newState === null) return;
+
+            const currentState = document.getElementById('extracteur-value')?.textContent?.trim();
+            if (currentState === newState) return;
+
+            const valueEl = document.getElementById('extracteur-value');
+            if (!valueEl) return;
+            valueEl.classList.add('etat-fade-out');
+            setTimeout(() => {
+                valueEl.textContent = newState;
+                valueEl.classList.remove('etat-fade-out');
+                applyExtracteurStyle(newState);
+                valueEl.classList.add('etat-fade-in');
+                setTimeout(() => valueEl.classList.remove('etat-fade-in'), 400);
+            }, 200);
+            sendCommand('extractor', newState.toLowerCase());
+            console.log(`[CO2 AUTO] ${co2} PPM → Extracteur ${newState}`);
+        }
+
         function updateElement(id, value) {
             const element = document.getElementById(id);
             if (element && element.textContent !== value) {
                 element.textContent = value;
+                if (id === 'extracteur-value') return;
                 element.parentElement.style.animation = 'none';
                 setTimeout(() => {
                     element.parentElement.style.animation = 'valuePulse 0.5s ease';
@@ -1803,18 +2173,13 @@
             if (initialCard) {
                 selectCTA(initialCard, currentCTA);
             } else {
-                loadPositions();
                 updateValuesFromStorage();
             }
 
-            // Initialiser les couleurs des sliders
+            // Initialiser la couleur du slider humidité
             setTimeout(() => {
-                const vcSlider = document.getElementById('vanne-chaud-slider');
-                const vfSlider = document.getElementById('vanne-froid-slider');
-                const hSlider  = document.getElementById('humidite-slider');
-                if (vcSlider) onSliderChange('vanne-chaud', vcSlider.value);
-                if (vfSlider) onSliderChange('vanne-froid',  vfSlider.value);
-                if (hSlider)  onSliderChange('humidite', hSlider.value);
+                const hSlider = document.getElementById('humidite-slider');
+                if (hSlider) onSliderChange('humidite', hSlider.value);
             }, 100);
 
             // Rafraîchissement périodique avec gestion des promesses
@@ -1890,6 +2255,38 @@
             }
 
             // renderAlertsLog and clearAlertsHistory have been removed as requested.
+
+            socket.on('extracteur_auto', (data) => {
+                extracteurManuallyToggled = false;
+                const valueEl = document.getElementById('extracteur-value');
+                if (!valueEl || valueEl.textContent.trim() === data.state) return;
+                valueEl.classList.add('etat-fade-out');
+                setTimeout(() => {
+                    valueEl.textContent = data.state;
+                    valueEl.classList.remove('etat-fade-out');
+                    applyExtracteurStyle(data.state);
+                    valueEl.classList.add('etat-fade-in');
+                    setTimeout(() => valueEl.classList.remove('etat-fade-in'), 400);
+                }, 200);
+                if (data.state === 'ON') {
+                    const container = document.getElementById('alarm-container');
+                    if (container && !document.getElementById('co2-ext-toast')) {
+                        const toast = document.createElement('div');
+                        toast.id = 'co2-ext-toast';
+                        toast.className = 'alarm-toast';
+                        toast.style.borderLeftColor = '#f59e0b';
+                        toast.innerHTML = `
+                            <div style="font-size:1.3rem;">🌀</div>
+                            <div>
+                                <div style="font-weight:700;font-size:0.85rem;">EXTRACTEUR AUTO — CO₂ ÉLEVÉ</div>
+                                <div style="font-size:0.78rem;color:#6b7280;">${data.co2} PPM &gt; 1000 — Extracteur activé automatiquement.</div>
+                            </div>
+                            <button onclick="this.parentElement.remove()" style="margin-left:auto;border:none;background:none;cursor:pointer;font-size:1rem;">✕</button>`;
+                        container.appendChild(toast);
+                        setTimeout(() => toast.remove(), 8000);
+                    }
+                }
+            });
 
             socket.on('alarm', (alarm) => {
                 // 1. Show Toast
@@ -1974,8 +2371,43 @@
                 // Energy live
                 onEnergyTelemetry(d);
 
-                // KPIs from live telemetry (server emits all fields in data)
-                // Compute delta_t and cop client-side from raw fields
+                // Temperatures en temps réel
+                if (d.salle != null) updateElement('temp-salle-value', parseFloat(d.salle).toFixed(1) + '°C');
+                if (d.soufflage != null) updateElement('temp-ambiante-value', parseFloat(d.soufflage).toFixed(1) + '°C');
+                if (d.reprise != null) updateElement('temp-reprise-value', parseFloat(d.reprise).toFixed(1) + '°C');
+
+                const liveMode = localStorage.getItem('mode_cta') || 'chauffage';
+                const liveHeating = (liveMode === 'chauffage' || liveMode === 'chaud');
+                if (liveHeating) {
+                    if (d.chaud_aller != null) updateElement('temp-aller-value', parseFloat(d.chaud_aller).toFixed(1) + '°C');
+                    if (d.chaud_retour != null) updateElement('temp-retour-value', parseFloat(d.chaud_retour).toFixed(1) + '°C');
+                } else {
+                    if (d.froid_aller != null) updateElement('temp-aller-value', parseFloat(d.froid_aller).toFixed(1) + '°C');
+                    if (d.froid_retour != null) updateElement('temp-retour-value', parseFloat(d.froid_retour).toFixed(1) + '°C');
+                }
+
+                // CO2 en temps réel
+                if (d.eco2 != null) {
+                    const co2Val = parseInt(d.eco2);
+                    updateElement('co2-value', co2Val + ' PPM');
+                    const co2Box = document.getElementById('co2');
+                    if (co2Box) {
+                        co2Box.classList.toggle('warning', co2Val > 1000 && co2Val <= 2000);
+                        co2Box.classList.toggle('danger', co2Val > 2000);
+                        if (co2Val <= 1000) { co2Box.classList.remove('warning'); co2Box.classList.remove('danger'); }
+                    }
+                }
+
+                // Vanne en temps réel
+                if (d.vanne_ouverture != null) {
+                    if (liveHeating) {
+                        updateElement('vanne-chaud-value', d.vanne_ouverture + '%');
+                    } else {
+                        updateElement('vanne-froid-value', d.vanne_ouverture + '%');
+                    }
+                }
+
+                // KPIs
                 const deltaT = (d.soufflage != null && d.reprise != null)
                     ? parseFloat((d.soufflage - d.reprise).toFixed(1)) : null;
                 const thermalKW = deltaT !== null ? Math.abs(deltaT) * 0.5 * 1.005 : null;
@@ -2486,6 +2918,477 @@ function dismissScheduleBanner() {
         }
     });
 })();
+
+// ═══════════════════════════════════════════════════════
+// FULL HISTORY MODAL
+// ═══════════════════════════════════════════════════════
+let _fhistCurrentTab = 'temp';
+
+function openFullHistoryModal() {
+    document.getElementById('full-history-modal').classList.add('open');
+    switchHistTab('temp');
+}
+
+function closeFullHistoryModal() {
+    document.getElementById('full-history-modal').classList.remove('open');
+}
+
+async function switchHistTab(tab) {
+    _fhistCurrentTab = tab;
+    document.querySelectorAll('.fhist-tab').forEach(t => t.classList.remove('active'));
+    const activeTab = document.getElementById('fhist-tab-' + tab);
+    if (activeTab) activeTab.classList.add('active');
+    await loadHistoryTabData(tab);
+}
+
+async function loadHistoryTabData(tab) {
+    const body = document.getElementById('fhist-body');
+    body.innerHTML = '<div style="text-align:center;padding:3rem;color:#64748b;">Chargement...</div>';
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 7000);
+    try {
+        const url = tab === 'temp'
+            ? '/api/history/temperatures?limit=100&t=' + Date.now()
+            : '/api/history/air-quality?limit=100&t=' + Date.now();
+        const res = await fetch(url, { signal: ctrl.signal });
+        clearTimeout(tid);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        if (tab === 'temp') renderTempHistoryFull(data);
+        else renderAirHistoryFull(data);
+    } catch (e) {
+        clearTimeout(tid);
+        const msg = e.name === 'AbortError'
+            ? 'Délai dépassé — serveur non disponible.'
+            : 'Erreur : ' + e.message;
+        body.innerHTML = `<div style="text-align:center;padding:2rem;color:#ef4444;">${msg}</div>`;
+    }
+}
+
+function renderTempHistoryFull(data) {
+    const body = document.getElementById('fhist-body');
+    if (!data || data.length === 0) {
+        body.innerHTML = '<div style="text-align:center;padding:3rem;color:#64748b;">Aucune donnée de température disponible.</div>';
+        return;
+    }
+    _fhistTempData = data;
+    _fhistTempView = 'table';
+    const fmt = v => v != null ? parseFloat(v).toFixed(1) + '°C' : '—';
+    const rows = data.map(r => `
+        <tr>
+            <td style="font-size:0.75rem;color:#64748b;white-space:nowrap;">${new Date(r.timestamp).toLocaleString('fr-FR')}</td>
+            <td style="text-align:center;color:#059669;font-weight:600;">${fmt(r.salle)}</td>
+            <td style="text-align:center;color:#d97706;font-weight:600;">${fmt(r.reprise)}</td>
+            <td style="text-align:center;color:#2563eb;font-weight:600;">${fmt(r.soufflage)}</td>
+            <td style="text-align:center;color:#b45309;font-weight:600;">${fmt(r.chaud_aller)}</td>
+            <td style="text-align:center;color:#9a3412;font-weight:600;">${fmt(r.chaud_retour)}</td>
+            <td style="text-align:center;color:#1d4ed8;font-weight:600;">${fmt(r.froid_aller)}</td>
+            <td style="text-align:center;color:#1e40af;font-weight:600;">${fmt(r.froid_retour)}</td>
+        </tr>`).join('');
+    body.innerHTML = `
+        <div class="fhist-controls">
+            <span style="font-size:0.8rem;color:#64748b;">${data.length} mesure(s) enregistrée(s)</span>
+            <div style="display:flex;gap:0.5rem;align-items:center;">
+                <div class="fhist-view-toggle">
+                    <button class="fhist-view-btn active" id="fhist-temp-btn-table" onclick="switchTempView('table')">☰ Tableau</button>
+                    <button class="fhist-view-btn" id="fhist-temp-btn-chart" onclick="switchTempView('chart')">📈 Courbes</button>
+                </div>
+                <button onclick="loadHistoryTabData('temp')" style="padding:0.3rem 0.75rem;background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;border-radius:6px;cursor:pointer;font-size:0.78rem;font-weight:600;">↻ Actualiser</button>
+            </div>
+        </div>
+        <div id="fhist-temp-table-view" style="overflow-x:auto;">
+        <table class="fhist-table">
+            <thead><tr>
+                <th>Horodatage</th>
+                <th style="background:#dcfce7;color:#15803d;">T° Salle</th>
+                <th style="background:#fef9c3;color:#92400e;">T° Reprise</th>
+                <th style="background:#eff6ff;color:#1d4ed8;">T° Soufflage</th>
+                <th style="background:#fff7ed;color:#c2410c;">Aller Chaud</th>
+                <th style="background:#fef2f2;color:#9f1239;">Retour Chaud</th>
+                <th style="background:#eff6ff;color:#1e40af;">Aller Froid</th>
+                <th style="background:#f0f9ff;color:#0c4a6e;">Retour Froid</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+        </table>
+        </div>
+        <div id="fhist-temp-chart-view" style="display:none;">
+            <div id="fhist-temp-charts-grid" style="display:grid;grid-template-columns:1fr;gap:0.75rem;"></div>
+        </div>`;
+}
+
+let _fhistTempData = [], _fhistTempView = 'table', _fhistTempCharts = [];
+
+function switchTempView(view) {
+    _fhistTempView = view;
+    document.getElementById('fhist-temp-btn-table').classList.toggle('active', view === 'table');
+    document.getElementById('fhist-temp-btn-chart').classList.toggle('active', view === 'chart');
+    document.getElementById('fhist-temp-table-view').style.display = view === 'table' ? '' : 'none';
+    document.getElementById('fhist-temp-chart-view').style.display = view === 'chart' ? '' : 'none';
+    if (view === 'chart') drawTempChart(_fhistTempData);
+}
+
+function drawTempChart(data) {
+    _fhistTempCharts.forEach(c => c.destroy());
+    _fhistTempCharts = [];
+    const sorted = [...data].reverse();
+    const labels = sorted.map(r => new Date(r.timestamp).toLocaleTimeString('fr-FR'));
+    const ptRadius = sorted.length > 50 ? 0 : 3;
+    const series = [
+        { key: 'salle',        label: 'T° Salle',      color: '#059669', bg: '#05966918' },
+        { key: 'reprise',      label: 'T° Reprise',    color: '#d97706', bg: '#d9770618' },
+        { key: 'soufflage',    label: 'T° Soufflage',  color: '#2563eb', bg: '#2563eb18' },
+        { key: 'chaud_aller',  label: 'Aller Chaud',   color: '#b45309', bg: '#b4530918' },
+        { key: 'chaud_retour', label: 'Retour Chaud',  color: '#9a3412', bg: '#9a341218' },
+        { key: 'froid_aller',  label: 'Aller Froid',   color: '#1d4ed8', bg: '#1d4ed818' },
+        { key: 'froid_retour', label: 'Retour Froid',  color: '#1e40af', bg: '#1e40af18' },
+    ];
+    const grid = document.getElementById('fhist-temp-charts-grid');
+    grid.innerHTML = '';
+    series.forEach(s => {
+        const values = sorted.map(r => r[s.key] != null ? Math.round(parseFloat(r[s.key]) * 10) / 10 : null);
+        const defined = values.filter(v => v != null);
+        const yMin = defined.length ? Math.floor(Math.min(...defined) * 2) / 2 - 0.5 : undefined;
+        const yMax = defined.length ? Math.ceil(Math.max(...defined) * 2) / 2 + 0.5 : undefined;
+        const panel = document.createElement('div');
+        panel.style.cssText = 'background:#ffffff;border-radius:10px;padding:0.75rem;border:1px solid #f1f5f9;';
+        panel.innerHTML = `
+            <div style="font-size:0.78rem;font-weight:700;color:${s.color};margin-bottom:0.5rem;display:flex;align-items:center;gap:0.4rem;">
+                <span style="display:inline-block;width:18px;height:3px;background:${s.color};border-radius:2px;"></span>${s.label}
+            </div>
+            <div style="position:relative;height:280px;"><canvas id="fhist-tc-${s.key}"></canvas></div>`;
+        grid.appendChild(panel);
+        const ctx = document.getElementById('fhist-tc-' + s.key).getContext('2d');
+        const chart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels,
+                datasets: [{
+                    data: values,
+                    borderColor: s.color,
+                    backgroundColor: s.bg,
+                    borderWidth: 2,
+                    pointRadius: ptRadius,
+                    tension: 0.3,
+                    fill: true,
+                    spanGaps: true,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: { callbacks: { label: c => (c.parsed.y != null ? c.parsed.y.toFixed(1) + ' °C' : '—') } }
+                },
+                scales: {
+                    x: { ticks: { maxTicksLimit: 6, font: { size: 9 } }, grid: { color: '#f1f5f9' } },
+                    y: {
+                        min: yMin, max: yMax,
+                        ticks: { font: { size: 9 }, callback: v => v.toFixed(1) + '°C', maxTicksLimit: 5 },
+                        grid: { color: '#f1f5f9' }
+                    }
+                }
+            }
+        });
+        _fhistTempCharts.push(chart);
+    });
+}
+
+function renderAirHistoryFull(data) {
+    const body = document.getElementById('fhist-body');
+    if (!data || data.length === 0) {
+        body.innerHTML = '<div style="text-align:center;padding:3rem;color:#64748b;">Aucune donnée CO₂ disponible.</div>';
+        return;
+    }
+    _fhistAirData = data;
+    _fhistAirView = 'table';
+    const rows = data.map(r => {
+        const co2 = r.eco2;
+        let co2Color = '#15803d', co2Bg = '#dcfce7';
+        if (co2 > 2000)      { co2Color = '#b91c1c'; co2Bg = '#fee2e2'; }
+        else if (co2 > 1000) { co2Color = '#a16207'; co2Bg = '#fef9c3'; }
+        else if (co2 > 900)  { co2Color = '#0369a1'; co2Bg = '#e0f2fe'; }
+        return `
+        <tr>
+            <td style="font-size:0.75rem;color:#64748b;white-space:nowrap;">${new Date(r.timestamp).toLocaleString('fr-FR')}</td>
+            <td style="text-align:center;"><span style="background:${co2Bg};color:${co2Color};padding:2px 10px;border-radius:99px;font-weight:700;font-size:0.82rem;">${co2 != null ? co2 + ' PPM' : '—'}</span></td>
+        </tr>`;
+    }).join('');
+    body.innerHTML = `
+        <div class="fhist-controls">
+            <span style="font-size:0.8rem;color:#64748b;">${data.length} mesure(s) enregistrée(s)</span>
+            <div style="display:flex;gap:0.5rem;align-items:center;">
+                <div class="fhist-view-toggle">
+                    <button class="fhist-view-btn active" id="fhist-air-btn-table" onclick="switchAirView('table')">☰ Tableau</button>
+                    <button class="fhist-view-btn" id="fhist-air-btn-chart" onclick="switchAirView('chart')">📈 Courbes</button>
+                </div>
+                <button onclick="loadHistoryTabData('co2')" style="padding:0.3rem 0.75rem;background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;border-radius:6px;cursor:pointer;font-size:0.78rem;font-weight:600;">↻ Actualiser</button>
+            </div>
+        </div>
+        <div id="fhist-air-table-view" style="overflow-x:auto;">
+        <table class="fhist-table">
+            <thead><tr>
+                <th>Horodatage</th>
+                <th style="background:#dcfce7;color:#15803d;">CO₂ (PPM)</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+        </table>
+        </div>
+        <div id="fhist-air-chart-view" style="display:none;">
+            <div class="fhist-chart-wrap" style="height:320px;"><canvas id="fhist-air-canvas-co2"></canvas></div>
+        </div>`;
+}
+
+let _fhistAirData = [], _fhistAirView = 'table', _fhistAirChartCO2 = null;
+
+function switchAirView(view) {
+    _fhistAirView = view;
+    document.getElementById('fhist-air-btn-table').classList.toggle('active', view === 'table');
+    document.getElementById('fhist-air-btn-chart').classList.toggle('active', view === 'chart');
+    document.getElementById('fhist-air-table-view').style.display = view === 'table' ? '' : 'none';
+    document.getElementById('fhist-air-chart-view').style.display = view === 'chart' ? '' : 'none';
+    if (view === 'chart') drawAirChart(_fhistAirData);
+}
+
+function drawAirChart(data) {
+    if (_fhistAirChartCO2) { _fhistAirChartCO2.destroy(); _fhistAirChartCO2 = null; }
+    const sorted = [...data].reverse();
+    const labels = sorted.map(r => new Date(r.timestamp).toLocaleTimeString('fr-FR'));
+    const ptRadius = sorted.length > 50 ? 0 : 3;
+    const co2Ctx = document.getElementById('fhist-air-canvas-co2').getContext('2d');
+    _fhistAirChartCO2 = new Chart(co2Ctx, {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [{
+                label: 'CO₂ (PPM)',
+                data: sorted.map(r => r.eco2 != null ? parseFloat(r.eco2) : null),
+                borderColor: '#059669', backgroundColor: '#05966918',
+                borderWidth: 2, pointRadius: ptRadius, tension: 0.3, fill: true, spanGaps: true,
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
+                tooltip: { callbacks: { label: ctx => 'CO₂: ' + (ctx.parsed.y != null ? ctx.parsed.y + ' PPM' : '—') } }
+            },
+            scales: {
+                x: { ticks: { maxTicksLimit: 10, font: { size: 10 } }, grid: { color: '#f1f5f9' } },
+                y: { title: { display: true, text: 'CO₂ (PPM)', font: { size: 11 } }, grid: { color: '#f1f5f9' } }
+            }
+        }
+    });
+}
+
+document.getElementById('full-history-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeFullHistoryModal();
+});
+
+// ══════════════════════════════════════════════════════════
+// Network Config Modal — ESP32 IP management
+// ══════════════════════════════════════════════════════════
+
+let _netDevices = [];
+let _editingDeviceId = null;
+
+function openNetworkModal() {
+    const modal = document.getElementById('network-modal');
+    modal.classList.add('open');
+    loadNetDevices();
+}
+
+function closeNetworkModal() {
+    document.getElementById('network-modal').classList.remove('open');
+    hideNetForm();
+}
+
+document.getElementById('network-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeNetworkModal();
+});
+
+async function loadNetDevices() {
+    const list = document.getElementById('net-device-list');
+    list.innerHTML = '<div style="text-align:center;padding:2rem;color:#9ca3af;font-size:0.85rem;">Chargement...</div>';
+    try {
+        const res = await fetch('/api/network/devices');
+        _netDevices = await res.json();
+        renderNetDevices();
+    } catch (e) {
+        list.innerHTML = '<div style="text-align:center;padding:2rem;color:#ef4444;font-size:0.85rem;">Erreur de chargement</div>';
+    }
+}
+
+function renderNetDevices() {
+    const list = document.getElementById('net-device-list');
+    if (!_netDevices.length) {
+        list.innerHTML = '<div style="text-align:center;padding:1.5rem;color:#9ca3af;font-size:0.85rem;">Aucun appareil configuré. Cliquez sur "Ajouter" pour commencer.</div>';
+        return;
+    }
+    const roleLabels = {
+        capteurs: { label: 'Capteurs', color: '#2563eb', bg: '#eff6ff' },
+        actionneurs: { label: 'Actionneurs', color: '#d97706', bg: '#fffbeb' },
+        energie: { label: 'Énergie', color: '#059669', bg: '#f0fdf4' },
+        qualite_air: { label: 'Qualité d\'air', color: '#7c3aed', bg: '#f5f3ff' }
+    };
+    list.innerHTML = _netDevices.map(d => {
+        const lastSeen = d.last_seen
+            ? new Date(d.last_seen).toLocaleString('fr-FR')
+            : 'Jamais';
+        const ipDisplay = d.static_ip || '<em style="color:#9ca3af;">Non configurée</em>';
+        const roleInfo = roleLabels[d.role] || { label: d.role || '—', color: '#6b7280', bg: '#f3f4f6' };
+        const cardNum = d.card_number || '?';
+        const topic = `cta/${d.device_id || '?'}/card/${cardNum}/commands`;
+        return `
+        <div class="net-device-item">
+            <div style="font-size:1.6rem; min-width:2rem; text-align:center;">📡</div>
+            <div class="net-device-info">
+                <div class="net-device-name" style="display:flex; align-items:center; gap:0.5rem;">
+                    ${d.device_name}
+                    <span style="font-size:0.7rem; font-weight:600; padding:1px 8px; border-radius:999px; background:${roleInfo.bg}; color:${roleInfo.color}; border:1px solid ${roleInfo.color}33;">${roleInfo.label}</span>
+                    <span style="font-size:0.7rem; color:#6b7280; font-weight:500;">Carte #${cardNum}</span>
+                </div>
+                <div class="net-device-ip">IP : ${ipDisplay} &nbsp;|&nbsp; GW : ${d.gateway || '--'} &nbsp;|&nbsp; DNS : ${d.dns || '--'}</div>
+                <div class="net-device-ip" style="color:#7c3aed;">Wi-Fi : ${d.wifi_ssid || '<em>Non configuré</em>'}</div>
+                <div class="net-device-meta">Topic MQTT : <code style="font-size:0.7rem;">${topic}</code> &nbsp;·&nbsp; Dernier envoi: ${lastSeen}</div>
+            </div>
+            <button class="net-btn-edit" onclick="showNetForm(${d.id})">✏️ Modifier</button>
+            <button class="net-btn-apply" onclick="applyNetConfigById(${d.id})" title="Envoyer la config à l'ESP via MQTT">📡 Appliquer</button>
+            <button class="net-btn-del" onclick="deleteNetDevice(${d.id})" title="Supprimer">🗑</button>
+        </div>`;
+    }).join('');
+}
+
+function showNetForm(deviceId) {
+    const form = document.getElementById('net-form');
+    const title = document.getElementById('net-form-title');
+    const sendBtn = document.getElementById('net-form-send-btn');
+    _editingDeviceId = deviceId;
+
+    if (deviceId === null) {
+        title.textContent = 'Nouvel appareil ESP32';
+        document.getElementById('net-form-id').value = '';
+        document.getElementById('nf-device-name').value = '';
+        document.getElementById('nf-device-id').value = '';
+        document.getElementById('nf-card-number').value = '';
+        document.getElementById('nf-role').value = 'capteurs';
+        document.getElementById('nf-static-ip').value = '';
+        document.getElementById('nf-gateway').value = '192.168.1.1';
+        document.getElementById('nf-subnet').value = '255.255.255.0';
+        document.getElementById('nf-dns').value = '8.8.8.8';
+        document.getElementById('nf-wifi-ssid').value = '';
+        document.getElementById('nf-wifi-pass').value = '';
+        sendBtn.style.display = 'none';
+    } else {
+        const d = _netDevices.find(x => x.id === deviceId);
+        if (!d) return;
+        title.textContent = `Modifier — ${d.device_name}`;
+        document.getElementById('net-form-id').value = d.id;
+        document.getElementById('nf-device-name').value = d.device_name || '';
+        document.getElementById('nf-device-id').value = d.device_id || '';
+        document.getElementById('nf-card-number').value = d.card_number || '';
+        document.getElementById('nf-role').value = d.role || 'capteurs';
+        document.getElementById('nf-static-ip').value = d.static_ip || '';
+        document.getElementById('nf-gateway').value = d.gateway || '192.168.1.1';
+        document.getElementById('nf-subnet').value = d.subnet || '255.255.255.0';
+        document.getElementById('nf-dns').value = d.dns || '8.8.8.8';
+        document.getElementById('nf-wifi-ssid').value = d.wifi_ssid || '';
+        document.getElementById('nf-wifi-pass').value = d.wifi_password || '';
+        sendBtn.style.display = '';
+    }
+    form.style.display = '';
+    form.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function hideNetForm() {
+    document.getElementById('net-form').style.display = 'none';
+    _editingDeviceId = null;
+}
+
+async function saveNetDevice() {
+    const id = document.getElementById('net-form-id').value;
+    const payload = {
+        device_id: parseInt(document.getElementById('nf-device-id').value) || null,
+        card_number: parseInt(document.getElementById('nf-card-number').value) || 1,
+        role: document.getElementById('nf-role').value,
+        device_name: document.getElementById('nf-device-name').value.trim(),
+        static_ip: document.getElementById('nf-static-ip').value.trim(),
+        gateway: document.getElementById('nf-gateway').value.trim(),
+        subnet: document.getElementById('nf-subnet').value.trim(),
+        dns: document.getElementById('nf-dns').value.trim(),
+        wifi_ssid: document.getElementById('nf-wifi-ssid').value.trim(),
+        wifi_password: document.getElementById('nf-wifi-pass').value
+    };
+    if (!payload.device_name) { showNetToast('Le nom de l\'appareil est requis', 'error'); return; }
+    try {
+        const url = id ? `/api/network/devices/${id}` : '/api/network/devices';
+        const method = id ? 'PUT' : 'POST';
+        const res = await fetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (data.success) {
+            showNetToast(id ? 'Configuration mise à jour' : 'Appareil ajouté', 'success');
+            hideNetForm();
+            await loadNetDevices();
+        } else {
+            showNetToast(data.error || 'Erreur', 'error');
+        }
+    } catch (e) {
+        showNetToast('Erreur réseau', 'error');
+    }
+}
+
+async function applyNetConfig() {
+    if (_editingDeviceId) {
+        await saveNetDevice();
+        await applyNetConfigById(_editingDeviceId);
+    }
+}
+
+async function applyNetConfigById(id) {
+    try {
+        const res = await fetch(`/api/network/devices/${id}/apply`, { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+            showNetToast('📡 Config envoyée à l\'ESP via MQTT', 'success');
+            await loadNetDevices();
+        } else {
+            showNetToast(data.error || 'Erreur MQTT', 'error');
+        }
+    } catch (e) {
+        showNetToast('Erreur lors de l\'envoi', 'error');
+    }
+}
+
+async function deleteNetDevice(id) {
+    if (!confirm('Supprimer cet appareil de la configuration ?')) return;
+    try {
+        const res = await fetch(`/api/network/devices/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.success) {
+            showNetToast('Appareil supprimé', 'success');
+            await loadNetDevices();
+        }
+    } catch (e) {
+        showNetToast('Erreur suppression', 'error');
+    }
+}
+
+function showNetToast(msg, type = 'success') {
+    const old = document.getElementById('net-toast-el');
+    if (old) old.remove();
+    const t = document.createElement('div');
+    t.id = 'net-toast-el';
+    t.className = `net-toast ${type}`;
+    const icon = type === 'success' ? '✅' : '❌';
+    t.innerHTML = `<span>${icon}</span><span>${msg}</span>`;
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 3500);
+}
 
 // Resolve CTA ID and check if any schedule is currently active on load
 resolveCtaId().then(async () => {

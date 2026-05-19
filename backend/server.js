@@ -55,9 +55,14 @@ async function initializeDatabase() {
         await dbPool.query(`
             CREATE TABLE IF NOT EXISTS cta (
                 id INT AUTO_INCREMENT PRIMARY KEY,
-                nom VARCHAR(50) NOT NULL
+                nom VARCHAR(50) NOT NULL,
+                etat VARCHAR(20) DEFAULT 'inactif'
             )
         `);
+        // Ajouter la colonne etat si elle n'existe pas (migration base existante)
+        await dbPool.query(`
+            ALTER TABLE cta ADD COLUMN IF NOT EXISTS etat VARCHAR(20) DEFAULT 'inactif'
+        `).catch(() => {});
 
         // 2. Temperature Table
         await dbPool.query(`
@@ -72,18 +77,10 @@ async function initializeDatabase() {
                 froid_aller FLOAT,
                 froid_retour FLOAT,
                 vanne_ouverture INT DEFAULT 0,
-                humidite FLOAT,
-                pression_filtre FLOAT,
-                vitesse_ventilateur FLOAT,
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (cta_id) REFERENCES cta(id) ON DELETE CASCADE
             )
         `);
-        // Migrate existing tables that lack the new columns
-        await dbPool.query("ALTER TABLE cta_temperature ADD COLUMN IF NOT EXISTS humidite FLOAT").catch(() => {});
-        await dbPool.query("ALTER TABLE cta_temperature ADD COLUMN IF NOT EXISTS pression_filtre FLOAT").catch(() => {});
-        await dbPool.query("ALTER TABLE cta_temperature ADD COLUMN IF NOT EXISTS vitesse_ventilateur FLOAT").catch(() => {});
-
         // 3. Energie Table
         await dbPool.query(`
             CREATE TABLE IF NOT EXISTS energie (
@@ -125,17 +122,6 @@ async function initializeDatabase() {
             )
         `);
 
-        // 6. Calendrier Table
-        await dbPool.query(`
-            CREATE TABLE IF NOT EXISTS calendrier (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                cta_id INT,
-                jour VARCHAR(10),
-                heure_on TIME,
-                heure_off TIME,
-                FOREIGN KEY (cta_id) REFERENCES cta(id) ON DELETE CASCADE
-            )
-        `);
 
         // 6b. Schedules Table (auto planning with mode + consigne)
         await dbPool.query(`
@@ -194,6 +180,29 @@ async function initializeDatabase() {
             console.log('✅ Base seeding complete.');
         }
 
+        // 9. Device Config Table (ESP32 network configuration)
+        await dbPool.query(`
+            CREATE TABLE IF NOT EXISTS device_config (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                device_id INT,
+                card_number INT DEFAULT 1,
+                role VARCHAR(50) DEFAULT 'capteurs',
+                device_name VARCHAR(100) NOT NULL,
+                static_ip VARCHAR(20) DEFAULT '',
+                gateway VARCHAR(20) DEFAULT '192.168.1.1',
+                subnet VARCHAR(20) DEFAULT '255.255.255.0',
+                dns VARCHAR(20) DEFAULT '8.8.8.8',
+                wifi_ssid VARCHAR(100) DEFAULT '',
+                wifi_password VARCHAR(100) DEFAULT '',
+                last_seen TIMESTAMP NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        `);
+
+        // Add card_number and role columns if they don't exist (migration)
+        try { await dbPool.query(`ALTER TABLE device_config ADD COLUMN card_number INT DEFAULT 1`); } catch(e) {}
+        try { await dbPool.query(`ALTER TABLE device_config ADD COLUMN role VARCHAR(50) DEFAULT 'capteurs'`); } catch(e) {}
+
         console.log('🚀 Database schema fully initialized with specialized CTA structure.');
     } catch (error) {
         console.error('❌ Error initializing database:', error);
@@ -225,7 +234,35 @@ mqttClient.on('connect', () => {
 
 mqttClient.on('message', async (topic, payload) => {
     const lowerTopic = topic.toLowerCase();
-    // Accept telemetry regardless of case or accents (telemetry or télémétrie)
+
+    // ── ENS160 : qualité d'air (cta/+/sensors) ───────────────────
+    if (lowerTopic.includes('/sensors')) {
+        try {
+            const data = JSON.parse(payload.toString());
+            console.log(`📥 MQTT Sensors [${topic}]:`, data);
+            if (dbPool) {
+                const [ctaRows] = await dbPool.query("SELECT id FROM cta LIMIT 1");
+                if (ctaRows.length === 0) return;
+                const ctaId = ctaRows[0].id;
+
+                // Sauvegarder en base
+                if (data.eco2 !== undefined || data.aqi !== undefined) {
+                    await dbPool.query(
+                        "INSERT INTO air_quality (cta_id, aqi, tvoc, eco2) VALUES (?, ?, ?, ?)",
+                        [ctaId, data.aqi ?? null, data.tvoc ?? null, data.eco2 ?? null]
+                    );
+                }
+
+                // Envoyer au dashboard via Socket.io
+                io.emit('telemetry', { ctaId, data, timestamp: new Date() });
+            }
+        } catch (error) {
+            console.error('Failed to process sensors message:', error);
+        }
+        return;
+    }
+
+    // ── Autres capteurs : télémétrie (cta/telemetry) ─────────────
     if (lowerTopic.includes('tele') || lowerTopic.includes('télémé')) {
         try {
             const data = JSON.parse(payload.toString());
@@ -237,12 +274,19 @@ mqttClient.on('message', async (topic, payload) => {
                 if (ctaRows.length === 0) return;
                 const ctaId = ctaRows[0].id;
 
-                // 2. Process Temperature Data
+                // 2. Process Temperature Data (throttled to 1 record per 15 minutes)
                 if (data.reprise !== undefined) {
-                    await dbPool.query(
-                        "INSERT INTO cta_temperature (cta_id, reprise, soufflage, salle, chaud_aller, chaud_retour, froid_aller, froid_retour, vanne_ouverture) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                        [ctaId, data.reprise, data.soufflage, data.salle, data.chaud_aller, data.chaud_retour, data.froid_aller, data.froid_retour, data.vanne_ouverture || 0]
-                    );
+                    if (!global.lastTempInsert) global.lastTempInsert = {};
+                    const now = Date.now();
+                    const FIFTEEN_MIN = 15 * 60 * 1000;
+                    if (!global.lastTempInsert[ctaId] || (now - global.lastTempInsert[ctaId]) >= FIFTEEN_MIN) {
+                        await dbPool.query(
+                            "INSERT INTO cta_temperature (cta_id, reprise, soufflage, salle, chaud_aller, chaud_retour, froid_aller, froid_retour, vanne_ouverture) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            [ctaId, data.reprise, data.soufflage, data.salle, data.chaud_aller, data.chaud_retour, data.froid_aller, data.froid_retour, data.vanne_ouverture || 0]
+                        );
+                        global.lastTempInsert[ctaId] = now;
+                        console.log(`[TEMP HISTORY] Saved temperature snapshot for CTA ${ctaId}`);
+                    }
                 }
 
                 // 3. Process Energy Data
@@ -259,6 +303,45 @@ mqttClient.on('message', async (topic, payload) => {
                         "INSERT INTO air_quality (cta_id, aqi, tvoc, eco2) VALUES (?, ?, ?, ?)",
                         [ctaId, data.aqi, data.tvoc, data.eco2]
                     );
+                }
+
+                // 4b. CO2-based extractor automation (all modes)
+                if (data.eco2 !== undefined && data.eco2 !== null) {
+                    const co2 = parseInt(data.eco2);
+                    if (!global.activeAlarms) global.activeAlarms = {};
+                    if (!global.extracteurState) global.extracteurState = {};
+
+                    if (co2 > 1000 && global.extracteurState[ctaId] !== 'on') {
+                        global.extracteurState[ctaId] = 'on';
+                        mqttClient.publish(`cta/${ctaId}/commands`, JSON.stringify({ actuatorType: 'extractor', value: 'on' }));
+                        io.emit('extracteur_auto', { state: 'ON', co2, ctaId });
+                        console.log(`[CO2 AUTO] ${co2} PPM > 1000 → Extracteur ON`);
+                    } else if (co2 < 900 && global.extracteurState[ctaId] !== 'off') {
+                        global.extracteurState[ctaId] = 'off';
+                        mqttClient.publish(`cta/${ctaId}/commands`, JSON.stringify({ actuatorType: 'extractor', value: 'off' }));
+                        io.emit('extracteur_auto', { state: 'OFF', co2, ctaId });
+                        console.log(`[CO2 AUTO] ${co2} PPM < 900 → Extracteur OFF`);
+                    }
+
+                    const alarmKeyDanger = `cta_${ctaId}_co2_danger`;
+                    if (co2 > 2000) {
+                        if (!global.activeAlarms[alarmKeyDanger]) {
+                            global.activeAlarms[alarmKeyDanger] = true;
+                            console.log(`[CO2 ALARM] 🚨 CRITIQUE: eco2=${co2} PPM > 2000`);
+                            await dbPool.query(
+                                "INSERT INTO alertes (cta_id, type, message, valeur, niveau) VALUES (?, ?, ?, ?, ?)",
+                                [ctaId, 'air', `ALARME CO₂ CRITIQUE: ${co2} PPM — Qualité d'air dangereuse!`, co2, 'danger']
+                            );
+                            io.emit('alarm', {
+                                ctaId, type: 'air',
+                                message: `ALARME CO₂ CRITIQUE: ${co2} PPM — Qualité d'air dangereuse!`,
+                                severity: 'danger', value: co2, created_at: new Date()
+                            });
+                        }
+                    } else if (co2 <= 1800 && global.activeAlarms[alarmKeyDanger]) {
+                        global.activeAlarms[alarmKeyDanger] = false;
+                        console.log(`[CO2 ALARM] ✅ RESET: eco2=${co2} PPM retombé sous 1800`);
+                    }
                 }
 
                 // 5. Check Thresholds and Create Alerts (Anti-Spam)
@@ -440,6 +523,21 @@ app.get('/api/history/temperatures', async (req, res) => {
     }
 });
 
+// GET air quality history
+app.get('/api/history/air-quality', async (req, res) => {
+    try {
+        if (!dbPool) return res.status(500).json({ error: 'DB not initialized' });
+        const limit = parseInt(req.query.limit) || 100;
+        const [rows] = await dbPool.query(
+            'SELECT * FROM air_quality ORDER BY timestamp DESC LIMIT ?',
+            [limit]
+        );
+        res.json(rows);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // GET active alerts
 app.get('/api/alarms/active', async (req, res) => {
     try {
@@ -560,9 +658,6 @@ app.get('/api/telemetry/latest', async (req, res) => {
                 froid_aller: t[0] ? t[0].froid_aller : null,
                 froid_retour: t[0] ? t[0].froid_retour : null,
                 vanne_ouverture: t[0] ? t[0].vanne_ouverture : 0,
-                humidite: t[0] ? t[0].humidite : null,
-                pression_filtre: t[0] ? t[0].pression_filtre : null,
-                vitesse_ventilateur: t[0] ? t[0].vitesse_ventilateur : null,
                 eco2: a[0] ? a[0].eco2 : null,
                 aqi: a[0] ? a[0].aqi : null,
                 tvoc: a[0] ? a[0].tvoc : null,
@@ -610,6 +705,32 @@ app.post('/api/commands', async (req, res) => {
             res.json({ success: true, message: `Command sent to ${topic}` });
         });
     } catch(err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ─── Equipment Status Route ──────────────────────────────────
+// Met à jour le champ etat (actif/inactif) dans la table cta
+app.put('/api/equipments/status', async (req, res) => {
+    const { ctaSlug, status } = req.body;
+    if (!ctaSlug || !status) {
+        return res.status(400).json({ error: 'Missing ctaSlug or status' });
+    }
+    try {
+        if (!dbPool) return res.status(500).json({ error: 'DB not initialized' });
+        // Convertit le slug (ex: "salle-polyvalente") vers le nom DB (ex: "Salle Polyvalente")
+        const [result] = await dbPool.query(
+            `UPDATE cta SET etat = ? WHERE LOWER(REPLACE(nom, ' ', '-')) = ?`,
+            [status, ctaSlug.toLowerCase()]
+        );
+        if (result.affectedRows === 0) {
+            // Fallback: met à jour le premier CTA (id=1) si le slug ne correspond pas
+            await dbPool.query('UPDATE cta SET etat = ? WHERE id = 1', [status]);
+        }
+        console.log(`[DB] CTA etat mis à jour → slug=${ctaSlug} etat=${status}`);
+        res.json({ success: true, ctaSlug, status });
+    } catch (err) {
+        console.error('[DB] Erreur update etat:', err.message);
         res.status(500).json({ error: err.message });
     }
 });
@@ -709,13 +830,134 @@ app.delete('/api/schedules/:id', async (req, res) => {
     }
 });
 
-// ─── SPA Fallback: serve index.html for unmatched routes ──
-// Express 5 requires named wildcard parameters
-app.get('/{*path}', (req, res) => {
-    // Only serve index.html for non-API, non-file requests
-    if (!req.path.startsWith('/api/')) {
-        res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
+// ═══════════════════════════════════════════════════════════
+// Network Config Routes (ESP32 IP management)
+// ═══════════════════════════════════════════════════════════
+
+// GET all ESP device configs
+app.get('/api/network/devices', async (req, res) => {
+    try {
+        if (!dbPool) return res.status(500).json({ error: 'DB not initialized' });
+        const [rows] = await dbPool.query('SELECT * FROM device_config ORDER BY id');
+        res.json(rows);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
     }
+});
+
+// GET single ESP device config
+app.get('/api/network/devices/:id', async (req, res) => {
+    try {
+        if (!dbPool) return res.status(500).json({ error: 'DB not initialized' });
+        const [rows] = await dbPool.query('SELECT * FROM device_config WHERE id = ?', [req.params.id]);
+        if (rows.length === 0) return res.status(404).json({ error: 'Device not found' });
+        res.json(rows[0]);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST create a new ESP device config
+app.post('/api/network/devices', async (req, res) => {
+    const { device_id, card_number, role, device_name, static_ip, gateway, subnet, dns, wifi_ssid, wifi_password } = req.body;
+    if (!device_name) return res.status(400).json({ error: 'device_name is required' });
+    try {
+        if (!dbPool) return res.status(500).json({ error: 'DB not initialized' });
+        const [result] = await dbPool.query(
+            'INSERT INTO device_config (device_id, card_number, role, device_name, static_ip, gateway, subnet, dns, wifi_ssid, wifi_password) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [device_id || null, card_number || 1, role || 'capteurs', device_name, static_ip || '', gateway || '192.168.1.1', subnet || '255.255.255.0', dns || '8.8.8.8', wifi_ssid || '', wifi_password || '']
+        );
+        res.json({ success: true, id: result.insertId });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// PUT update ESP device config
+app.put('/api/network/devices/:id', async (req, res) => {
+    const { device_id, card_number, role, device_name, static_ip, gateway, subnet, dns, wifi_ssid, wifi_password } = req.body;
+    try {
+        if (!dbPool) return res.status(500).json({ error: 'DB not initialized' });
+        await dbPool.query(
+            `UPDATE device_config SET
+                device_id = COALESCE(?, device_id),
+                card_number = COALESCE(?, card_number),
+                role = COALESCE(?, role),
+                device_name = COALESCE(?, device_name),
+                static_ip = COALESCE(?, static_ip),
+                gateway = COALESCE(?, gateway),
+                subnet = COALESCE(?, subnet),
+                dns = COALESCE(?, dns),
+                wifi_ssid = COALESCE(?, wifi_ssid),
+                wifi_password = COALESCE(?, wifi_password),
+                updated_at = NOW()
+            WHERE id = ?`,
+            [device_id ?? null, card_number ?? null, role ?? null, device_name ?? null,
+             static_ip ?? null, gateway ?? null, subnet ?? null, dns ?? null,
+             wifi_ssid ?? null, wifi_password ?? null, req.params.id]
+        );
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// DELETE ESP device config
+app.delete('/api/network/devices/:id', async (req, res) => {
+    try {
+        if (!dbPool) return res.status(500).json({ error: 'DB not initialized' });
+        await dbPool.query('DELETE FROM device_config WHERE id = ?', [req.params.id]);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST apply network config to ESP via MQTT
+app.post('/api/network/devices/:id/apply', async (req, res) => {
+    try {
+        if (!dbPool) return res.status(500).json({ error: 'DB not initialized' });
+        const [rows] = await dbPool.query('SELECT * FROM device_config WHERE id = ?', [req.params.id]);
+        if (rows.length === 0) return res.status(404).json({ error: 'Device not found' });
+
+        const cfg = rows[0];
+        const deviceId = cfg.device_id || 1;
+        const topic = `cta/${deviceId}/commands/${cfg.role || 'temperatures'}`;
+        const payload = JSON.stringify({
+            actuatorType: 'network_config',
+            value: {
+                static_ip: cfg.static_ip,
+                gateway: cfg.gateway,
+                subnet: cfg.subnet,
+                dns: cfg.dns,
+                wifi_ssid: cfg.wifi_ssid,
+                wifi_password: cfg.wifi_password
+            }
+        });
+
+        mqttClient.publish(topic, payload, async (err) => {
+            if (err) {
+                console.error('[MQTT] Network config publish error:', err);
+                return res.status(500).json({ error: 'MQTT publish failed' });
+            }
+            // Update last_seen timestamp
+            await dbPool.query('UPDATE device_config SET last_seen = NOW() WHERE id = ?', [cfg.id]);
+            console.log(`[NETWORK CFG] Sent to ${topic}:`, payload);
+            res.json({ success: true, message: `Config envoyée à ESP (topic: ${topic})` });
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ─── 404 for unknown API routes (prevents hanging requests) ──
+app.use('/api', (req, res) => {
+    res.status(404).json({ error: 'API route not found' });
+});
+
+// ─── SPA Fallback: serve index.html for unmatched non-API routes ──
+app.get('/{*path}', (req, res) => {
+    res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });
 
 // ─── Scheduler: checks active schedules every minute ─────
